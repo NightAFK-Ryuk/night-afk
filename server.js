@@ -122,8 +122,8 @@ app.post('/api/admin/activate', (req, res) => {
   res.status(404).json({ error: 'User not found' });
 });
 
-function createWebBot(config, ownerUsername) {
-  const botId = `${config.username}_${Date.now()}`;
+function createWebBot(config, ownerUsername, existingBotId = null) {
+  const botId = existingBotId || `${config.username}_${Date.now()}`;
 
   const botOpts = {
     host: config.host,
@@ -154,7 +154,16 @@ function createWebBot(config, ownerUsername) {
   bot.loadPlugin(pvp);
   bot.loadPlugin(autoEat);
 
-  const instance = { bot, config, autoEatHp: config.autoEatHp || 10, autoMessengerInterval: null, ownerUsername };
+  const instance = { 
+    bot, 
+    config, 
+    autoEatHp: config.autoEatHp || 10, 
+    autoMessengerInterval: null, 
+    reconnectTimer: null,
+    manualDisconnect: false,
+    ownerUsername 
+  };
+  
   botInstances.set(botId, instance);
 
   bot.once('spawn', () => {
@@ -188,8 +197,20 @@ function createWebBot(config, ownerUsername) {
 
   bot.on('end', (reason) => {
     if (instance.autoMessengerInterval) clearInterval(instance.autoMessengerInterval);
+
     emitToUserOrAdmin(ownerUsername, 'bot_status', { botId, username: config.username, ownerUsername, status: `Offline (${reason})` });
-    botInstances.delete(botId);
+
+    // --- AUTO-RECONNECT SYSTEM ---
+    if (!instance.manualDisconnect) {
+      emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, log: 'Disconnected. Auto-reconnecting in 15 seconds...' });
+      instance.reconnectTimer = setTimeout(() => {
+        if (botInstances.has(botId) && !botInstances.get(botId).manualDisconnect) {
+          createWebBot(config, ownerUsername, botId);
+        }
+      }, 15000);
+    } else {
+      botInstances.delete(botId);
+    }
   });
 
   bot.on('error', (err) => {
@@ -221,9 +242,9 @@ io.on('connection', (socket) => {
           username: inst.config.username,
           ownerUsername: inst.ownerUsername,
           host: inst.config.host,
-          status: inst.bot.entity ? 'Online' : 'Connecting',
-          health: inst.bot.health || 0,
-          food: inst.bot.food || 0
+          status: inst.bot?.entity ? 'Online' : 'Connecting',
+          health: inst.bot?.health || 0,
+          food: inst.bot?.food || 0
         });
       }
     });
@@ -252,7 +273,9 @@ io.on('connection', (socket) => {
     if (!isAllowed(botId)) return;
     const inst = botInstances.get(botId);
     if (inst) {
-      inst.bot.quit();
+      inst.manualDisconnect = true;
+      if (inst.reconnectTimer) clearTimeout(inst.reconnectTimer);
+      if (inst.bot) inst.bot.quit();
       botInstances.delete(botId);
       emitToUserOrAdmin(inst.ownerUsername, 'bot_removed', botId);
     }
@@ -322,3 +345,4 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`[Night AFK] Website running on port ${PORT}`);
 });
+    
