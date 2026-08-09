@@ -1,295 +1,341 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const session = require('express-session');
 const mineflayer = require('mineflayer');
-const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
-const axios = require('axios');
-const net = require('net');
+const { SocksClient } = require('socks');
+const { pathfinder, movements } = require('mineflayer-pathfinder');
+const pvp = require('mineflayer-pvp').plugin;
+const https = require('https');
 const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
+const PORT = process.env.PORT || 3000;
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+const sessionMiddleware = session({
+  secret: 'night_afk_glowing_key_2026',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 24 * 60 * 60 * 1000 }
+});
+
+app.use(sessionMiddleware);
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Global Application State
-const activeBots = new Map();
-const hardcoreFFABots = new Set();
-let globalTargetUser = '';
+io.use((socket, next) => {
+  sessionMiddleware(socket.request, {}, next);
+});
 
-let rawScrapedProxies = [];
-let workingProxies = [];
-let isCheckingProxies = false;
+// In-Memory Database
+const users = new Map();
+const botInstances = new Map();
 
-// --- 1. PROXY SCRAPER & LIVE TCP CHECKER ---
-function testProxyConnection(ip, port, timeout = 2500) {
+// Default Admin
+users.set('Ryuk', {
+  username: 'Ryuk',
+  email: 'ryuk@nightafk.com',
+  password: 'Ryuk#13',
+  role: 'admin',
+  createdAt: new Date().toISOString()
+});
+
+// --- HTTP Auth Routes ---
+app.post('/api/register', (req, res) => {
+  const { username, email, password } = req.body;
+  if (!username || !email || !password) {
+    return res.status(400).json({ error: 'All fields are required.' });
+  }
+  if (users.has(username)) {
+    return res.status(400).json({ error: 'Username already taken.' });
+  }
+  const user = { username, email, password, role: 'user', createdAt: new Date().toISOString() };
+  users.set(username, user);
+  req.session.user = user;
+  res.json({ success: true, user: { username, role: user.role } });
+});
+
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  const user = users.get(username);
+  if (!user || user.password !== password) {
+    return res.status(401).json({ error: 'Invalid credentials.' });
+  }
+  req.session.user = user;
+  res.json({ success: true, user: { username: user.username, role: user.role } });
+});
+
+app.post('/api/logout', (req, res) => {
+  req.session.destroy();
+  res.json({ success: true });
+});
+
+app.get('/api/me', (req, res) => {
+  if (req.session.user) {
+    res.json({ authenticated: true, user: req.session.user });
+  } else {
+    res.json({ authenticated: false });
+  }
+});
+
+// --- TCP Proxy Scraper & Real-Time Verifier ---
+const PROXY_SOURCES = [
+  'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt',
+  'https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt',
+  'https://raw.githubusercontent.com/prxck/proxy-list/main/socks5.txt'
+];
+
+function fetchProxiesFromUrl(url) {
   return new Promise((resolve) => {
-    const socket = new net.Socket();
-    let isWorking = false;
-
-    socket.setTimeout(timeout);
-    socket.on('connect', () => {
-      isWorking = true;
-      socket.destroy();
-    });
-    socket.on('timeout', () => socket.destroy());
-    socket.on('error', () => socket.destroy());
-    socket.on('close', () => resolve(isWorking));
-
-    socket.connect(parseInt(port), ip);
-  });
-}
-
-async function scrapeAndCheckProxies() {
-  if (isCheckingProxies) return;
-  isCheckingProxies = true;
-
-  console.log('[NightAFK System] Scraping fresh SOCKS5 proxies...');
-  broadcastSystemState();
-
-  const sources = [
-    'https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=10000&country=all',
-    'https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt',
-    'https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt'
-  ];
-
-  const scrapedSet = new Set();
-
-  for (const sourceUrl of sources) {
-    try {
-      const res = await axios.get(sourceUrl, { timeout: 6000 });
-      const lines = res.data.split(/\r?\n/);
-      lines.forEach(line => {
-        const trimmed = line.trim();
-        if (trimmed && trimmed.includes(':')) {
-          scrapedSet.add(trimmed);
-        }
+    https.get(url, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        const lines = data.split('\n').map(l => l.trim()).filter(l => l.includes(':'));
+        resolve(lines);
       });
-    } catch (e) {
-      // Ignore individual endpoint errors
-    }
-  }
-
-  rawScrapedProxies = Array.from(scrapedSet);
-  console.log(`[NightAFK System] Found ${rawScrapedProxies.length} raw proxies. Testing batch...`);
-
-  // Verify top 100 proxies for responsiveness
-  const poolToTest = rawScrapedProxies.slice(0, 100);
-  const verifiedList = [];
-
-  await Promise.all(poolToTest.map(async (proxyStr) => {
-    const [ip, port] = proxyStr.split(':');
-    if (ip && port) {
-      const alive = await testProxyConnection(ip, port, 2500);
-      if (alive) verifiedList.push(proxyStr);
-    }
-  }));
-
-  workingProxies = verifiedList;
-  isCheckingProxies = false;
-
-  console.log(`[NightAFK System] Verification complete. ${workingProxies.length} verified proxies active.`);
-  broadcastSystemState();
-}
-
-// Initial Scrape on start + repeat every 12 minutes
-scrapeAndCheckProxies();
-setInterval(scrapeAndCheckProxies, 12 * 60 * 1000);
-
-// --- 2. ARMOR STRIPPING HELPER ---
-async function stripArmor(bot) {
-  const armorSlots = [5, 6, 7, 8];
-  for (const slot of armorSlots) {
-    if (bot.inventory.slots[slot]) {
-      try {
-        const slotType = slot === 5 ? 'head' : slot === 6 ? 'torso' : slot === 7 ? 'legs' : 'feet';
-        await bot.unequip(slotType);
-      } catch (err) {
-        // Suppress inventory full errors
-      }
-    }
-  }
-}
-
-// --- 3. BOT INSTANTIATION ---
-function createNightBot(username, host, port, proxyStr = '') {
-  const [proxyIp, proxyPort] = proxyStr ? proxyStr.split(':') : ['Direct', 'N/A'];
-
-  const bot = mineflayer.createBot({
-    host: host || 'localhost',
-    port: parseInt(port) || 25565,
-    username: username
+    }).on('error', () => resolve([]));
   });
+}
 
-  bot.loadPlugin(pathfinder);
+async function scrapeAndVerifyProxies(socket) {
+  socket.emit('proxy_log', '🔍 Initializing multi-source proxy aggregation...');
+  let rawProxies = [];
 
-  bot.customMeta = {
-    username,
-    host,
-    port,
-    proxyIp,
-    proxyPort,
-    startTime: Date.now(),
-    hffaInterval: null,
-    followInterval: null,
-    afkInterval: null
+  for (const src of PROXY_SOURCES) {
+    const list = await fetchProxiesFromUrl(src);
+    rawProxies = rawProxies.concat(list);
+  }
+
+  const uniqueProxies = [...new Set(rawProxies)].slice(0, 50);
+  socket.emit('proxy_log', `📦 Aggregated ${uniqueProxies.length} candidates. Initiating TCP handshakes...`);
+
+  let verifiedCount = 0;
+  for (const proxyStr of uniqueProxies) {
+    const parts = proxyStr.split(':');
+    const host = parts[0];
+    const port = parseInt(parts[1], 10);
+
+    if (!host || isNaN(port)) continue;
+
+    const startTime = Date.now();
+    try {
+      const { socket: proxyConn } = await SocksClient.createConnection({
+        proxy: { host, port, type: 5 },
+        command: 'connect',
+        destination: { host: '1.1.1.1', port: 80 },
+        timeout: 2500
+      });
+      proxyConn.destroy();
+      const latency = Date.now() - startTime;
+      const formatted = `${host}:${port}`;
+      verifiedCount++;
+      
+      socket.emit('proxy_log', `✅ [OPERATIONAL] ${formatted} - Latency: ${latency}ms`);
+      socket.emit('proxy_verified_single', formatted);
+    } catch (err) {
+      socket.emit('proxy_log', `❌ [FAILED] ${host}:${port}`);
+    }
+  }
+
+  socket.emit('proxy_log', `🎉 Verification complete! ${verifiedCount} operational SOCKS5 proxies ready.`);
+}
+
+// --- WebBot Deployment Engine ---
+function createWebBot(config, ownerUsername, existingBotId = null) {
+  const botId = existingBotId || `bot_${config.username}_${Date.now()}`;
+
+  const botOpts = {
+    host: config.host,
+    port: parseInt(config.port, 10) || 25565,
+    username: config.username,
+    version: config.version || '1.8.9',
+    checkTimeoutInterval: 120000,
+    viewDistance: 'far'
   };
+
+  if (config.proxy) {
+    const parts = config.proxy.trim().split(':');
+    botOpts.connect = (client) => {
+      SocksClient.createConnection({
+        proxy: { host: parts[0], port: parseInt(parts[1], 10), type: 5, userId: parts[2], password: parts[3] },
+        command: 'connect',
+        destination: { host: config.host, port: botOpts.port }
+      }).then(({ socket }) => {
+        client.setSocket(socket);
+        client.emit('connect');
+      }).catch(err => {
+        emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `Proxy TCP Error: ${err.message}` });
+      });
+    };
+  }
+
+  const bot = mineflayer.createBot(botOpts);
+  bot.loadPlugin(pathfinder);
+  bot.loadPlugin(pvp);
+
+  const instance = {
+    botId,
+    bot,
+    config,
+    ownerUsername,
+    startTime: Date.now(),
+    pvpTarget: null,
+    pvpActive: false,
+    hardcoreFFA: {
+      enabled: config.hardcoreFFA || false,
+      kitCommand: config.ffaKit || '/kit ffa',
+      autoAttackNearest: config.ffaAutoAttack || false
+    },
+    manualDisconnect: false
+  };
+
+  botInstances.set(botId, instance);
 
   bot.once('spawn', () => {
-    console.log(`[Bot Spawned] ${username} connected.`);
-    const movements = new Movements(bot);
-    movements.canDig = false;
-    bot.pathfinder.setMovements(movements);
+    const defaultMove = new movements(bot);
+    bot.pathfinder.setMovements(defaultMove);
 
-    // DEFAULT MODE: Anti-idle routine (Swings arm every 30s)
-    bot.customMeta.afkInterval = setInterval(() => {
-      if (!hardcoreFFABots.has(username) && bot.entity) {
-        bot.swing('arm');
-      }
-    }, 30000);
-
-    broadcastSystemState();
-  });
-
-  // Track live status updates
-  bot.on('health', () => broadcastSystemState());
-
-  // HARDCORE FFA FEATURE
-  bot.enableHardcoreFFA = () => {
-    hardcoreFFABots.add(username);
-    console.log(`[NightAFK] ${username} -> HardcoreFFA Enabled`);
-
-    bot.chat('/play hardcoreffa');
-    stripArmor(bot);
-
-    if (bot.customMeta.hffaInterval) clearInterval(bot.customMeta.hffaInterval);
-    bot.customMeta.hffaInterval = setInterval(() => {
-      if (hardcoreFFABots.has(username)) {
-        bot.chat('/play hardcoreffa');
-        stripArmor(bot);
-      }
-    }, 60000);
-
-    if (bot.customMeta.followInterval) clearInterval(bot.customMeta.followInterval);
-    bot.customMeta.followInterval = setInterval(() => {
-      if (!globalTargetUser || !hardcoreFFABots.has(username)) return;
-
-      const targetPlayer = bot.players[globalTargetUser];
-      if (targetPlayer && targetPlayer.entity) {
-        bot.pathfinder.setGoal(new goals.GoalFollow(targetPlayer.entity, 1), true);
-      }
-    }, 1000);
-
-    broadcastSystemState();
-  };
-
-  bot.disableHardcoreFFA = () => {
-    hardcoreFFABots.delete(username);
-    if (bot.customMeta.hffaInterval) clearInterval(bot.customMeta.hffaInterval);
-    if (bot.customMeta.followInterval) clearInterval(bot.customMeta.followInterval);
-
-    bot.pathfinder.setGoal(null);
-    console.log(`[NightAFK] ${username} -> Returned to Pure AFK`);
-    broadcastSystemState();
-  };
-
-  bot.on('end', () => {
-    bot.disableHardcoreFFA();
-    if (bot.customMeta.afkInterval) clearInterval(bot.customMeta.afkInterval);
-    activeBots.delete(username);
-    broadcastSystemState();
-  });
-
-  bot.on('error', (err) => console.error(`[${username} Error]`, err.message));
-
-  activeBots.set(username, bot);
-  return bot;
-}
-
-// Generate Dashboard Data Payload
-function getBotPayload() {
-  const list = [];
-  activeBots.forEach((bot) => {
-    const uptimeSec = Math.floor((Date.now() - bot.customMeta.startTime) / 1000);
-    const hrs = Math.floor(uptimeSec / 3600);
-    const mins = Math.floor((uptimeSec % 3600) / 60);
-    const secs = uptimeSec % 60;
-
-    list.push({
-      username: bot.customMeta.username,
-      proxyIp: bot.customMeta.proxyIp,
-      proxyPort: bot.customMeta.proxyPort,
-      uptime: `${hrs}h ${mins}m ${secs}s`,
-      health: bot.health ? Math.round(bot.health) : 20,
-      food: bot.food ? Math.round(bot.food) : 20,
-      isHFFA: hardcoreFFABots.has(bot.customMeta.username)
+    emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
+      botId,
+      username: config.username,
+      ownerUsername,
+      host: config.host,
+      port: config.port,
+      status: 'Online',
+      health: bot.health,
+      food: bot.food
     });
-  });
-  return list;
-}
 
-function broadcastSystemState() {
-  io.emit('system_state_update', {
-    bots: getBotPayload(),
-    currentTarget: globalTargetUser,
-    workingProxyCount: workingProxies.length,
-    rawProxyCount: rawScrapedProxies.length,
-    isCheckingProxies
-  });
-}
+    if (config.password) {
+      setTimeout(() => {
+        bot.chat(`/register ${config.password} ${config.password}`);
+        setTimeout(() => bot.chat(`/login ${config.password}`), 1000);
+      }, 1500);
+    }
 
-// Live timer tick
-setInterval(() => {
-  if (activeBots.size > 0) {
-    io.emit('uptime_tick', getBotPayload());
+    if (instance.hardcoreFFA.enabled) {
+      setTimeout(() => executeFFAKit(instance), 3000);
+    }
+  });
+
+  // Hardcore FFA Auto-Respawn & Re-kit Engine
+  bot.on('death', () => {
+    emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: '☠️ Bot died! Hardcore FFA Auto-Respawn sequence triggered...' });
+    
+    if (instance.hardcoreFFA.enabled) {
+      setTimeout(() => {
+        bot.respawn();
+        emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: '🔄 Respawned. Requesting Hardcore FFA Kit...' });
+        setTimeout(() => executeFFAKit(instance), 2000);
+      }, 1000);
+    }
+  });
+
+  // Continuous Hardcore FFA Engagement Loop
+  setInterval(() => {
+    if (!bot.entity || !instance.hardcoreFFA.enabled || !instance.hardcoreFFA.autoAttackNearest) return;
+
+    if (!instance.pvpActive || !instance.pvpTarget) {
+      const nearestPlayer = bot.nearestEntity(e => e.type === 'player' && e.username !== bot.username);
+      if (nearestPlayer) {
+        instance.pvpTarget = nearestPlayer.username;
+        instance.pvpActive = true;
+        bot.pvp.attack(nearestPlayer);
+        emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `⚔️ Hardcore FFA: Engaging target ${nearestPlayer.username}` });
+      }
+    }
+  }, 2500);
+
+  function executeFFAKit(inst) {
+    if (inst.hardcoreFFA.kitCommand) {
+      inst.bot.chat(inst.hardcoreFFA.kitCommand);
+      emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `🎒 Executed Kit Command: ${inst.hardcoreFFA.kitCommand}` });
+    }
   }
-}, 1000);
 
-// --- 4. SOCKET CONTROLLERS ---
+  bot.on('health', () => {
+    emitToUserOrAdmin(ownerUsername, 'bot_health_update', { botId, health: bot.health, food: bot.food });
+  });
+
+  bot.on('messagestr', (msg) => {
+    emitToUserOrAdmin(ownerUsername, 'bot_chat_log', { botId, message: msg });
+  });
+
+  bot.on('end', (reason) => {
+    emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
+      botId, username: config.username, ownerUsername, status: `Offline (${reason})`
+    });
+
+    if (!instance.manualDisconnect) {
+      setTimeout(() => {
+        if (botInstances.has(botId) && !botInstances.get(botId).manualDisconnect) {
+          createWebBot(config, ownerUsername, botId);
+        }
+      }, 10000);
+    }
+  });
+
+  return botId;
+}
+
+function emitToUserOrAdmin(ownerUsername, event, data) {
+  io.sockets.sockets.forEach((socket) => {
+    const user = socket.request.session?.user;
+    if (user && (user.username === ownerUsername || user.role === 'admin')) {
+      socket.emit(event, data);
+    }
+  });
+}
+
+// --- Socket Connection Router ---
 io.on('connection', (socket) => {
-  broadcastSystemState();
+  const sessionUser = socket.request.session?.user;
+  if (!sessionUser) return;
 
-  socket.on('connect_bot', ({ username, host, port, useProxy }) => {
-    let chosenProxy = '';
-    if (useProxy && workingProxies.length > 0) {
-      chosenProxy = workingProxies[Math.floor(Math.random() * workingProxies.length)];
-    }
-    createNightBot(username, host, port, chosenProxy);
+  socket.on('request_scrape_and_verify', () => {
+    scrapeAndVerifyProxies(socket);
   });
 
-  socket.on('disconnect_bot', (username) => {
-    const bot = activeBots.get(username);
-    if (bot) bot.quit();
-  });
-
-  socket.on('send_chat', ({ username, message }) => {
-    const bot = activeBots.get(username);
-    if (bot && message) bot.chat(message);
-  });
-
-  socket.on('toggle_hffa', ({ username, enable }) => {
-    const bot = activeBots.get(username);
-    if (bot) {
-      if (enable) bot.enableHardcoreFFA();
-      else bot.disableHardcoreFFA();
+  socket.on('toggle_ffa_mode', ({ botId, enabled, kitCommand, autoAttack }) => {
+    const inst = botInstances.get(botId);
+    if (inst) {
+      inst.hardcoreFFA.enabled = enabled;
+      inst.hardcoreFFA.kitCommand = kitCommand || '/kit ffa';
+      inst.hardcoreFFA.autoAttackNearest = autoAttack;
+      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, message: `⚙️ Hardcore FFA Mode updated: ${enabled ? 'ENABLED' : 'DISABLED'}` });
     }
   });
 
-  socket.on('set_global_target', (target) => {
-    globalTargetUser = target;
-    broadcastSystemState();
+  socket.on('spawn_bot', (config) => {
+    const botId = createWebBot(config, sessionUser.username);
+    socket.emit('bot_spawned', { botId, username: config.username });
   });
 
-  socket.on('force_proxy_check', () => {
-    scrapeAndCheckProxies();
+  socket.on('disconnect_bot', ({ botId }) => {
+    const inst = botInstances.get(botId);
+    if (inst) {
+      inst.manualDisconnect = true;
+      inst.bot.quit();
+      botInstances.delete(botId);
+      socket.emit('bot_log', { botId, message: '🛑 Bot manually disconnected.' });
+    }
+  });
+
+  socket.on('send_chat', ({ botId, text }) => {
+    const inst = botInstances.get(botId);
+    if (inst && inst.bot) {
+      inst.bot.chat(text);
+    }
   });
 });
 
-server.listen(3000, () => {
-  console.log('====================================================');
-  console.log('  NightAFK Dashboard Ready: http://localhost:3000   ');
-  console.log('====================================================');
+server.listen(PORT, () => {
+  console.log(`[Night AFK] Platform online on port ${PORT}`);
 });
-      
+        
