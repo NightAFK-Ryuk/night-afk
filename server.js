@@ -4,7 +4,7 @@ const { Server } = require('socket.io');
 const session = require('express-session');
 const mineflayer = require('mineflayer');
 const { SocksClient } = require('socks');
-const { pathfinder } = require('mineflayer-pathfinder');
+const { pathfinder, movements, goals } = require('mineflayer-pathfinder');
 const pvp = require('mineflayer-pvp').plugin;
 const autoEat = require('mineflayer-auto-eat').plugin;
 
@@ -18,7 +18,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const sessionMiddleware = session({
-  secret: 'night_afk_private_key_99',
+  secret: 'night_afk_ultra_secure_key_2026',
   resave: false,
   saveUninitialized: false,
   cookie: { maxAge: 24 * 60 * 60 * 1000 }
@@ -31,29 +31,23 @@ io.use((socket, next) => {
   sessionMiddleware(socket.request, {}, next);
 });
 
+// User Database (In-Memory; extendable to SQLite/MongoDB)
 const users = new Map();
 const botInstances = new Map();
 
-// Default Admin User
+// Admin Setup
 users.set('Ryuk', {
   username: 'Ryuk',
   email: 'admin@nightafk.local',
   password: 'Ryuk#13',
   role: 'admin',
-  status: 'active'
+  status: 'active',
+  createdAt: new Date().toISOString()
 });
-
-function generateRandomUsername() {
-  const prefixes = ['cast', 'mist', 'shadow', 'void', 'frost', 'ember', 'dark', 'storm'];
-  const suffixes = ['spell', 'death', 'blade', 'soul', 'walker', 'rider', 'strike'];
-  let name = prefixes[Math.floor(Math.random() * prefixes.length)] + suffixes[Math.floor(Math.random() * suffixes.length)];
-  if (name.length < 5) name += Math.floor(Math.random() * 100);
-  return name.slice(0, 12);
-}
 
 function verifyProxy(proxyStr) {
   return new Promise((resolve) => {
-    if (!proxyStr) return resolve({ success: false, reason: 'No proxy string provided.' });
+    if (!proxyStr) return resolve({ success: false, reason: 'No proxy provided.' });
     const parts = proxyStr.trim().split(':');
     if (parts.length < 2) return resolve({ success: false, reason: 'Format must be Host:Port' });
 
@@ -77,13 +71,22 @@ function verifyProxy(proxyStr) {
   });
 }
 
+// Authentication & Account Routes
 app.post('/api/register', (req, res) => {
   const { username, email, password } = req.body;
-  if (!username || !email || !password) return res.status(400).json({ error: 'All fields required.' });
-  if (users.has(username)) return res.status(400).json({ error: 'Username already exists.' });
+  if (!username || !email || !password) return res.status(400).json({ error: 'All fields are required.' });
+  if (users.has(username)) return res.status(400).json({ error: 'Username already taken.' });
 
-  users.set(username, { username, email, password, role: 'user', status: 'pending' });
-  res.json({ message: 'Registration submitted! Awaiting admin approval from Ryuk.' });
+  users.set(username, {
+    username,
+    email,
+    password,
+    role: 'user',
+    status: 'pending',
+    createdAt: new Date().toISOString()
+  });
+
+  res.json({ success: true, message: 'Registration submitted. Awaiting approval by Ryuk.' });
 });
 
 app.post('/api/login', (req, res) => {
@@ -91,7 +94,7 @@ app.post('/api/login', (req, res) => {
   const user = users.get(username);
 
   if (!user || user.password !== password) return res.status(401).json({ error: 'Invalid credentials.' });
-  if (user.status === 'pending') return res.status(403).json({ error: 'Account pending admin activation by Ryuk.' });
+  if (user.status === 'pending') return res.status(403).json({ error: 'Account pending admin activation.' });
 
   req.session.user = { username: user.username, role: user.role };
   res.json({ success: true, user: req.session.user });
@@ -107,23 +110,36 @@ app.post('/api/logout', (req, res) => {
   res.json({ success: true });
 });
 
+// Admin Panel APIs
 app.get('/api/admin/users', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
-  res.json(Array.from(users.values()).map(u => ({ username: u.username, email: u.email, status: u.status, role: u.role })));
+  const userList = Array.from(users.values()).map(u => ({
+    username: u.username,
+    email: u.email,
+    role: u.role,
+    status: u.status,
+    createdAt: u.createdAt,
+    activeBots: Array.from(botInstances.values()).filter(b => b.ownerUsername === u.username).length
+  }));
+  res.json(userList);
 });
 
-app.post('/api/admin/activate', (req, res) => {
+app.post('/api/admin/user-action', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
-  const { targetUser } = req.body;
-  if (users.has(targetUser)) {
-    users.get(targetUser).status = 'active';
-    return res.json({ success: true, message: `Account ${targetUser} activated.` });
-  }
-  res.status(404).json({ error: 'User not found' });
+  const { targetUser, action } = req.body;
+  const user = users.get(targetUser);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (action === 'activate') user.status = 'active';
+  if (action === 'suspend') user.status = 'suspended';
+  if (action === 'delete') users.delete(targetUser);
+
+  res.json({ success: true });
 });
 
+// Mineflayer Bot Instantiation
 function createWebBot(config, ownerUsername, existingBotId = null) {
-  const botId = existingBotId || `${config.username}_${Date.now()}`;
+  const botId = existingBotId || `bot_${config.username}_${Date.now()}`;
 
   const botOpts = {
     host: config.host,
@@ -144,7 +160,7 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
         client.setSocket(socket);
         client.emit('connect');
       }).catch(err => {
-        emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, log: `Proxy Error: ${err.message}` });
+        emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `Proxy Error: ${err.message}` });
       });
     };
   }
@@ -154,24 +170,36 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
   bot.loadPlugin(pvp);
   bot.loadPlugin(autoEat);
 
-  const instance = { 
-    bot, 
-    config, 
-    autoEatHp: config.autoEatHp || 10, 
-    autoMessengerInterval: null, 
+  const instance = {
+    botId,
+    bot,
+    config,
+    ownerUsername,
+    startTime: Date.now(),
+    eatSettings: {
+      minHp: config.minHp !== undefined ? parseInt(config.minHp, 10) : 1,
+      maxHp: config.maxHp !== undefined ? parseInt(config.maxHp, 10) : 6,
+      gappleOnly: config.gappleOnly || false,
+      lastEatTime: 0
+    },
     reconnectTimer: null,
-    manualDisconnect: false,
-    ownerUsername 
+    manualDisconnect: false
   };
-  
+
   botInstances.set(botId, instance);
 
   bot.once('spawn', () => {
-    emitToUserOrAdmin(ownerUsername, 'bot_status', {
-      botId, username: config.username, ownerUsername, status: 'Online', health: bot.health, food: bot.food
+    emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
+      botId,
+      username: config.username,
+      ownerUsername,
+      host: config.host,
+      port: config.port,
+      status: 'Online',
+      health: bot.health,
+      food: bot.food,
+      uptime: 0
     });
-
-    bot.autoEat.options = { priority: 'foodPoints', startHTML: instance.autoEatHp * 2, eatingTimeout: 3000 };
 
     if (config.password) {
       setTimeout(() => {
@@ -181,28 +209,57 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
     }
   });
 
+  // Custom Auto-Eat & Golden Apple System with 5s Cooldown
   bot.on('health', () => {
-    emitToUserOrAdmin(ownerUsername, 'bot_health_update', { botId, health: bot.health, food: bot.food });
-    if (bot.health <= instance.autoEatHp) bot.autoEat.eat().catch(() => {});
+    emitToUserOrAdmin(ownerUsername, 'bot_health_update', {
+      botId,
+      health: bot.health,
+      food: bot.food
+    });
+
+    const now = Date.now();
+    const { minHp, maxHp, gappleOnly, lastEatTime } = instance.eatSettings;
+
+    // Trigger eating within configured bounds (1 to 20 HP)
+    if (bot.health <= maxHp && bot.health >= minHp && (now - lastEatTime >= 5000)) {
+      instance.eatSettings.lastEatTime = now;
+
+      if (gappleOnly) {
+        const gapple = bot.inventory.items().find(item => item.name.includes('golden_apple'));
+        if (gapple) {
+          bot.equip(gapple, 'hand')
+            .then(() => bot.consume())
+            .then(() => {
+              emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `Ate Golden Apple at ${bot.health} HP.` });
+            })
+            .catch(err => {
+              emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `Gapple consume fail: ${err.message}` });
+            });
+        } else {
+          emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `Low health (${bot.health} HP), but no Golden Apples found.` });
+        }
+      } else {
+        bot.autoEat.eat().catch(() => {});
+      }
+    }
   });
 
   bot.on('windowOpen', (window) => {
-    const items = window.slots.map((item, index) => item ? { slot: index, name: item.name, count: item.count } : null);
-    emitToUserOrAdmin(ownerUsername, 'bot_window_open', { botId, title: window.title, slots: items });
+    const slots = window.slots.map((item, index) => item ? { slot: index, name: item.name, count: item.count } : null);
+    emitToUserOrAdmin(ownerUsername, 'bot_inventory_update', { botId, title: window.title, slots });
   });
 
   bot.on('messagestr', (msg) => {
-    emitToUserOrAdmin(ownerUsername, 'bot_chat_log', { botId, username: config.username, message: msg });
+    emitToUserOrAdmin(ownerUsername, 'bot_chat_log', { botId, message: msg });
   });
 
   bot.on('end', (reason) => {
-    if (instance.autoMessengerInterval) clearInterval(instance.autoMessengerInterval);
+    emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
+      botId, username: config.username, ownerUsername, status: `Offline (${reason})`
+    });
 
-    emitToUserOrAdmin(ownerUsername, 'bot_status', { botId, username: config.username, ownerUsername, status: `Offline (${reason})` });
-
-    // --- AUTO-RECONNECT SYSTEM ---
     if (!instance.manualDisconnect) {
-      emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, log: 'Disconnected. Auto-reconnecting in 15 seconds...' });
+      emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: 'Disconnected. Auto-reconnecting in 15 seconds...' });
       instance.reconnectTimer = setTimeout(() => {
         if (botInstances.has(botId) && !botInstances.get(botId).manualDisconnect) {
           createWebBot(config, ownerUsername, botId);
@@ -214,7 +271,7 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
   });
 
   bot.on('error', (err) => {
-    emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, log: `Error: ${err.message}` });
+    emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `System Error: ${err.message}` });
   });
 
   return botId;
@@ -229,9 +286,16 @@ function emitToUserOrAdmin(ownerUsername, event, data) {
   });
 }
 
+// Socket Communication Router
 io.on('connection', (socket) => {
   const sessionUser = socket.request.session?.user;
   if (!sessionUser) return;
+
+  function isAllowed(botId) {
+    const inst = botInstances.get(botId);
+    if (!inst) return false;
+    return sessionUser.role === 'admin' || inst.ownerUsername === sessionUser.username;
+  }
 
   socket.on('request_bot_sync', () => {
     const list = [];
@@ -242,32 +306,22 @@ io.on('connection', (socket) => {
           username: inst.config.username,
           ownerUsername: inst.ownerUsername,
           host: inst.config.host,
+          port: inst.config.port,
           status: inst.bot?.entity ? 'Online' : 'Connecting',
           health: inst.bot?.health || 0,
-          food: inst.bot?.food || 0
+          food: inst.bot?.food || 0,
+          uptime: Math.floor((Date.now() - inst.startTime) / 1000),
+          eatSettings: inst.eatSettings
         });
       }
     });
     socket.emit('bot_sync', list);
   });
 
-  socket.on('generate_username', () => socket.emit('username_generated', generateRandomUsername()));
-
-  socket.on('test_proxy', async (proxyStr) => {
-    const res = await verifyProxy(proxyStr);
-    socket.emit('proxy_test_result', res);
-  });
-
   socket.on('spawn_bot', (config) => {
     const botId = createWebBot(config, sessionUser.username);
     socket.emit('bot_spawned', { botId, username: config.username });
   });
-
-  function isAllowed(botId) {
-    const inst = botInstances.get(botId);
-    if (!inst) return false;
-    return sessionUser.role === 'admin' || inst.ownerUsername === sessionUser.username;
-  }
 
   socket.on('disconnect_bot', (botId) => {
     if (!isAllowed(botId)) return;
@@ -281,31 +335,46 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('send_chat', ({ botIds, message }) => {
-    botIds.forEach(id => {
-      if (isAllowed(id)) {
-        const inst = botInstances.get(id);
-        if (inst && inst.bot) inst.bot.chat(message);
+  socket.on('update_eat_settings', ({ botId, minHp, maxHp, gappleOnly }) => {
+    if (!isAllowed(botId)) return;
+    const inst = botInstances.get(botId);
+    if (inst) {
+      inst.eatSettings.minHp = parseInt(minHp, 10);
+      inst.eatSettings.maxHp = parseInt(maxHp, 10);
+      inst.eatSettings.gappleOnly = !!gappleOnly;
+      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, message: `Updated Eat Settings: Min ${minHp} HP, Max ${maxHp} HP, Gapple Only: ${gappleOnly}` });
+    }
+  });
+
+  socket.on('send_chat', ({ botId, message }) => {
+    if (isAllowed(botId)) {
+      const inst = botInstances.get(botId);
+      if (inst && inst.bot) inst.bot.chat(message);
+    }
+  });
+
+  socket.on('global_chat', ({ message }) => {
+    botInstances.forEach(inst => {
+      if (sessionUser.role === 'admin' || inst.ownerUsername === sessionUser.username) {
+        if (inst.bot) inst.bot.chat(message);
       }
     });
   });
 
-  socket.on('toggle_messenger', ({ botId, enabled, message }) => {
-    if (!isAllowed(botId)) return;
-    const inst = botInstances.get(botId);
-    if (!inst) return;
-
-    if (inst.autoMessengerInterval) clearInterval(inst.autoMessengerInterval);
-
-    if (enabled && message) {
-      inst.bot.chat(message);
-      inst.autoMessengerInterval = setInterval(() => {
-        if (inst.bot) inst.bot.chat(message);
-      }, 60000);
-      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, log: 'Auto-messenger activated (60s loop).' });
-    } else {
-      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, log: 'Auto-messenger stopped.' });
-    }
+  socket.on('global_move', ({ action }) => {
+    botInstances.forEach(inst => {
+      if (sessionUser.role === 'admin' || inst.ownerUsername === sessionUser.username) {
+        if (inst.bot) {
+          if (action === 'jump') {
+            inst.bot.setControlState('jump', true);
+            setTimeout(() => inst.bot.setControlState('jump', false), 500);
+          } else if (action === 'forward') {
+            inst.bot.setControlState('forward', true);
+            setTimeout(() => inst.bot.setControlState('forward', false), 1000);
+          }
+        }
+      }
+    });
   });
 
   socket.on('start_pvp', ({ botId, targetUsername }) => {
@@ -315,9 +384,18 @@ io.on('connection', (socket) => {
     const player = inst.bot.players[targetUsername]?.entity;
     if (player) {
       inst.bot.pvp.attack(player);
-      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, log: `PVP engaged against ${targetUsername}` });
+      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, message: `PVP engaged against ${targetUsername}` });
     } else {
-      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, log: `Target ${targetUsername} out of view range.` });
+      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, message: `Target ${targetUsername} out of render distance.` });
+    }
+  });
+
+  socket.on('stop_pvp', ({ botId }) => {
+    if (!isAllowed(botId)) return;
+    const inst = botInstances.get(botId);
+    if (inst && inst.bot?.pvp) {
+      inst.bot.pvp.stop();
+      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, message: 'PVP disengaged.' });
     }
   });
 
@@ -327,8 +405,8 @@ io.on('connection', (socket) => {
     if (!inst || !inst.bot) return;
 
     const win = inst.bot.currentWindow || inst.bot.inventory;
-    const items = win.slots.map((item, index) => item ? { slot: index, name: item.name, count: item.count } : null);
-    socket.emit('bot_window_open', { botId, title: win.title || 'Inventory', slots: items });
+    const slots = win.slots.map((item, index) => item ? { slot: index, name: item.name, count: item.count } : null);
+    socket.emit('bot_inventory_update', { botId, title: win.title || 'Inventory', slots });
   });
 
   socket.on('click_slot', ({ botId, slotId }) => {
@@ -337,12 +415,12 @@ io.on('connection', (socket) => {
     if (!inst || !inst.bot) return;
 
     inst.bot.clickWindow(slotId, 0, 0).catch(err => {
-      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, log: `Click Error: ${err.message}` });
+      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, message: `Click Error: ${err.message}` });
     });
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`[Night AFK] Website running on port ${PORT}`);
+  console.log(`[Night AFK] Production Dashboard active on port ${PORT}`);
 });
-    
+                      
