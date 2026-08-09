@@ -3,364 +3,278 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Night AFK - Dashboard & Bot Control</title>
-  <script src="/socket.io/socket.io.js"></script>
-  <style>
-    :root {
-      --bg: #0a0b10;
-      --card-bg: #121420;
-      --accent: #00f0ff;
-      --accent-glow: rgba(0, 240, 255, 0.3);
-      --red: #ff3366;
-      --green: #00ff88;
-      --text: #e0e6ed;
-      --text-dim: #7a889b;
-      --border: #1e2338;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-    body { background: var(--bg); color: var(--text); overflow-x: hidden; }
-
-    /* Auth Overlay */
-    #auth-overlay {
-      position: fixed; inset: 0; background: rgba(10, 11, 16, 0.95);
-      display: flex; align-items: center; justify-content: center; z-index: 999;
-    }
-    .auth-card {
-      background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px;
-      padding: 30px; width: 360px; box-shadow: 0 0 25px var(--accent-glow);
-    }
-    .auth-card h2 { color: var(--accent); margin-bottom: 20px; text-align: center; }
-    .tab-row { display: flex; gap: 10px; margin-bottom: 20px; }
-    .tab-btn { flex: 1; padding: 8px; background: transparent; border: 1px solid var(--border); color: var(--text); cursor: pointer; border-radius: 6px; }
-    .tab-btn.active { background: var(--accent); color: #000; font-weight: bold; }
-
-    /* Layout */
-    header { background: var(--card-bg); border-bottom: 1px solid var(--border); padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; }
-    .logo { color: var(--accent); font-size: 1.5rem; font-weight: bold; letter-spacing: 1px; }
-
-    .main-grid { display: grid; grid-template-columns: 320px 1fr 340px; gap: 20px; padding: 20px; height: calc(100vh - 70px); }
-    .panel { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 15px; display: flex; flex-direction: column; overflow: hidden; }
-
-    h3, h4 { color: var(--accent); margin-bottom: 12px; }
-    .subtitle { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 15px; }
-
-    /* Form Controls */
-    .input-group { margin-bottom: 12px; }
-    .input-group label { display: block; font-size: 0.8rem; color: var(--text-dim); margin-bottom: 4px; }
-    input[type="text"], input[type="password"], input[type="number"], select {
-      width: 100%; padding: 10px; background: #0a0b10; border: 1px solid var(--border); border-radius: 6px; color: var(--text); outline: none;
-    }
-    input:focus { border-color: var(--accent); }
-
-    .checkbox-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-
-    button.btn-glow {
-      background: var(--accent); color: #000; font-weight: bold; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer;
-      box-shadow: 0 0 10px var(--accent-glow); transition: 0.2s ease;
-    }
-    button.btn-glow:hover { opacity: 0.9; transform: translateY(-1px); }
-    button.block { width: 100%; }
-
-    /* Logs & Terminal */
-    .terminal-box {
-      background: #050608; border: 1px solid var(--border); border-radius: 6px; padding: 10px; flex: 1;
-      font-family: monospace; font-size: 0.85rem; overflow-y: auto; color: #a0aab0; display: flex; flex-direction: column; gap: 4px;
-    }
-
-    /* Bot List */
-    .bot-card {
-      background: #0a0b10; border: 1px solid var(--border); padding: 12px; border-radius: 6px; margin-bottom: 10px; cursor: pointer;
-    }
-    .bot-card.selected { border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
-    .status-online { color: var(--green); }
-    .status-offline { color: var(--red); }
-
-    .hidden { display: none !important; }
-  </style>
+  <title>NIGHT AFK - Minecraft Automation Hub</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
 
-  <!-- Auth Overlay -->
-  <div id="auth-overlay">
+  <!-- Navigation Bar -->
+  <nav class="navbar">
+    <div class="logo" onclick="showScreen('hero-screen')">NIGHT <span>AFK</span></div>
+    <div class="nav-links">
+      <button id="nav-dash-btn" class="btn-text hidden" onclick="showScreen('dashboard-screen')">Dashboard</button>
+      <button id="nav-admin-btn" class="btn-text hidden" onclick="showScreen('admin-screen')">Admin Portal</button>
+      <button id="nav-login-btn" class="btn-outline" onclick="showScreen('login-screen')">Sign In</button>
+      <button id="nav-register-btn" class="btn-glow" onclick="showScreen('register-screen')">Register</button>
+      <button id="nav-logout-btn" class="btn-outline hidden" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <!-- Hero Screen -->
+  <div id="hero-screen" class="screen active">
+    <div class="hero-container">
+      <div class="glow-pill">• Infinite AFK Hosting Online</div>
+      <h1 class="glow-title">Welcome To Night AFK</h1>
+      <p class="hero-subtitle">
+        AFK Your Bot 24/7 Without Any Issue. High-performance Minecraft automation powered by custom socket routing and multi-account state tracking.
+      </p>
+      <div class="hero-actions">
+        <button class="btn-glow-lg" onclick="showScreen('register-screen')">Get Started</button>
+        <button class="btn-outline-lg" onclick="showScreen('dashboard-screen')">Open Dashboard</button>
+      </div>
+
+      <div class="features-header">
+        <h2>Engine Capabilities & Features</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">Explore our automation suites below</p>
+      </div>
+
+      <div class="feature-grid">
+        <div class="feature-card reveal">
+          <div class="feature-icon">🛡️</div>
+          <h3>Socks5 (TCP)</h3>
+          <p>Full TCP SOCKS5 proxy integration. Bypass IP rate limits and server anti-VPN restrictions by routing bot connections through isolated proxy endpoints.</p>
+        </div>
+        <div class="feature-card reveal">
+          <div class="feature-icon">⚔️</div>
+          <h3>HardcoreFFA Suite</h3>
+          <p>Dedicated FFA automation engine. Executes /play hardcoreffa, strips off armor every 60 seconds, and tracks target players continuously, even post-respawn.</p>
+        </div>
+        <div class="feature-card reveal">
+          <div class="feature-icon">💬</div>
+          <h3>Chat Console</h3>
+          <p>Real-time bidirectional chat interface. Send commands, view server output logs, or trigger global chat broadcasts across all active bot instances simultaneously.</p>
+        </div>
+        <div class="feature-card reveal">
+          <div class="feature-icon">🏃</div>
+          <h3>Movement System</h3>
+          <p>Built-in spatial movement and pathfinding. Execute jumps, automated forward strides, and spatial tracking to bypass server idle kick scripts.</p>
+        </div>
+        <div class="feature-card reveal">
+          <div class="feature-icon">🎒</div>
+          <h3>Inventory Visualizer</h3>
+          <p>Interactive 36-slot inventory screen. Inspect held items, view stack counts, and click slots directly from your web browser.</p>
+        </div>
+        <div class="feature-card reveal">
+          <div class="feature-icon">⚡</div>
+          <h3>Username Generator</h3>
+          <p>Instant online username generation algorithm. Generate unique, valid Minecraft usernames with a single click during instance creation.</p>
+        </div>
+        <div class="feature-card reveal">
+          <div class="feature-icon">📡</div>
+          <h3>Proxy Scraper</h3>
+          <p>Integrated proxy aggregator. Fetch fresh, live SOCKS5 proxy lists directly inside the application workspace.</p>
+        </div>
+        <div class="feature-card reveal">
+          <div class="feature-icon">🔍</div>
+          <h3>Proxy Checker (TCP)</h3>
+          <p>Real-time TCP handshake proxy tester. Verify proxy uptime and response speed before attaching them to your bots.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Authentication Screens -->
+  <div id="login-screen" class="screen">
     <div class="auth-card">
-      <h2 id="auth-title">LOGIN</h2>
-      <div class="tab-row">
-        <button class="tab-btn active" onclick="switchAuthTab('login')">Login</button>
-        <button class="tab-btn" onclick="switchAuthTab('register')">Register</button>
-      </div>
-
-      <div class="input-group hidden" id="email-group">
-        <label>Email</label>
-        <input type="text" id="auth-email" placeholder="user@nightafk.com">
-      </div>
-      <div class="input-group">
-        <label>Username</label>
-        <input type="text" id="auth-username" placeholder="Ryuk">
-      </div>
-      <div class="input-group">
-        <label>Password</label>
-        <input type="password" id="auth-password" placeholder="••••••••">
-      </div>
-
-      <button class="btn-glow block" onclick="submitAuth()" id="auth-submit-btn">Login</button>
-      <div id="auth-error" style="color: var(--red); font-size: 0.8rem; margin-top: 10px; text-align: center;"></div>
+      <h2 style="margin-bottom: 20px;">Sign In</h2>
+      <div id="login-err" style="color: var(--danger); font-size: 0.85rem; margin-bottom: 12px;" class="hidden"></div>
+      <form onsubmit="handleLogin(event)">
+        <div class="input-group"><label>Username</label><input type="text" id="login-user" required></div>
+        <div class="input-group"><label>Password</label><input type="password" id="login-pass" required></div>
+        <button type="submit" class="btn-glow block">Sign In</button>
+      </form>
     </div>
   </div>
 
-  <!-- Header -->
-  <header>
-    <div class="logo">NIGHT AFK</div>
-    <div>
-      <span id="user-display" style="margin-right: 15px; color: var(--text-dim);">Not logged in</span>
-      <button class="btn-glow" onclick="logout()" style="padding: 5px 12px; font-size: 0.8rem;">Logout</button>
+  <div id="register-screen" class="screen">
+    <div class="auth-card">
+      <h2 style="margin-bottom: 20px;">Register</h2>
+      <div id="reg-msg" style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;" class="hidden"></div>
+      <form onsubmit="handleRegister(event)">
+        <div class="input-group"><label>Username</label><input type="text" id="reg-user" required></div>
+        <div class="input-group"><label>Email</label><input type="email" id="reg-email" required></div>
+        <div class="input-group"><label>Password</label><input type="password" id="reg-pass" required></div>
+        <button type="submit" class="btn-glow block">Create Account</button>
+      </form>
     </div>
-  </header>
-
-  <!-- Main Grid -->
-  <div class="main-grid">
-    
-    <!-- Left Column: Deploy & Proxy Scraper -->
-    <div class="panel">
-      <h3>🚀 Deploy WebBot</h3>
-      <div class="input-group">
-        <label>Bot Username</label>
-        <input type="text" id="bot-username" value="AFK_Bot_1">
-      </div>
-      <div class="input-group">
-        <label>Server IP</label>
-        <input type="text" id="bot-host" value="localhost">
-      </div>
-      <div class="input-group">
-        <label>Server Port</label>
-        <input type="number" id="bot-port" value="25565">
-      </div>
-      <div class="input-group">
-        <label>SOCKS5 Proxy (Host:Port)</label>
-        <input type="text" id="bot-proxy" placeholder="127.0.0.1:1080">
-      </div>
-      <button class="btn-glow block" onclick="deployBot()" style="margin-bottom: 20px;">Deploy Bot</button>
-
-      <h3>🔍 SOCKS5 TCP Scraper</h3>
-      <button class="btn-glow block" onclick="startProxyScraper()" style="margin-bottom: 10px;">Scrape & Verify Proxies</button>
-      <div class="terminal-box" id="proxy-log-box">
-        <div>Ready to scrape...</div>
-      </div>
-    </div>
-
-    <!-- Center Column: Bot Terminal & Active Instance Management -->
-    <div class="panel">
-      <h3>💻 Central Terminal & Chat</h3>
-      <div class="terminal-box" id="bot-terminal-box" style="margin-bottom: 10px;">
-        <div>[System] Select a bot from the right panel to view logs.</div>
-      </div>
-      <div style="display: flex; gap: 10px;">
-        <input type="text" id="chat-input" placeholder="Type chat command or message..." style="flex: 1;">
-        <button class="btn-glow" onclick="sendChat()">Send</button>
-      </div>
-    </div>
-
-    <!-- Right Column: Active Bots & Hardcore FFA Panel -->
-    <div class="panel">
-      <h3>🤖 Active Instances</h3>
-      <div id="bot-list" style="margin-bottom: 20px; max-height: 200px; overflow-y: auto;">
-        <!-- Dynamic Bot Cards -->
-      </div>
-
-      <hr style="border-color: var(--border); margin-bottom: 15px;">
-
-      <h3>🔥 Hardcore FFA Engine</h3>
-      <p class="subtitle">Auto-respawns on death, executes kit commands, and attacks nearest players</p>
-
-      <div class="checkbox-row">
-        <input type="checkbox" id="ffa-enabled">
-        <label for="ffa-enabled">Enable Hardcore FFA Loop</label>
-      </div>
-
-      <div class="input-group">
-        <label>Auto-Kit Command</label>
-        <input type="text" id="ffa-kit-cmd" value="/kit ffa">
-      </div>
-
-      <div class="checkbox-row">
-        <input type="checkbox" id="ffa-auto-attack">
-        <label for="ffa-auto-attack">Auto-Engage Nearest Player</label>
-      </div>
-
-      <button class="btn-glow block" onclick="saveFFASettings()">Apply FFA Engine</button>
-      <button class="btn-glow block" onclick="disconnectSelectedBot()" style="background: var(--red); color: #fff; margin-top: 10px;">Disconnect Bot</button>
-    </div>
-
   </div>
 
-  <script>
-    const socket = io();
-    let currentAuthMode = 'login';
-    let selectedBotId = null;
-    let activeBotsMap = new Map();
+  <!-- Main Dashboard -->
+  <div id="dashboard-screen" class="screen">
+    <div class="dash-container">
+      <div class="dash-header">
+        <h2>Active Bot Network</h2>
+        <div class="dash-head-actions">
+          <button class="btn-outline" onclick="openToolsModal()">Tools & Proxies</button>
+          <button class="btn-glow" onclick="openSpawnModal()">+ Spawn Bot</button>
+        </div>
+      </div>
 
-    // Check Auth Status on Load
-    fetch('/api/me').then(r => r.json()).then(data => {
-      if (data.authenticated) {
-        document.getElementById('auth-overlay').classList.add('hidden');
-        document.getElementById('user-display').textContent = `User: ${data.user.username} (${data.user.role})`;
-      }
-    });
+      <!-- Global Chat & Control Bar -->
+      <div class="global-bar">
+        <input type="text" id="global-chat-input" placeholder="Broadcast message across all active instances...">
+        <button class="btn-glow" onclick="sendGlobalChat()">Broadcast</button>
+        <button class="btn-outline" onclick="triggerGlobalMove('jump')">Global Jump</button>
+        <button class="btn-outline" onclick="triggerGlobalMove('forward')">Global Forward</button>
+      </div>
 
-    function switchAuthTab(mode) {
-      currentAuthMode = mode;
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.getElementById('auth-title').textContent = mode.toUpperCase();
-      document.getElementById('auth-submit-btn').textContent = mode.toUpperCase();
+      <!-- Bot Card Grid -->
+      <div id="bot-grid" class="bot-grid"></div>
+    </div>
+  </div>
 
-      if (mode === 'register') {
-        document.getElementById('email-group').classList.remove('hidden');
-        event.target.classList.add('active');
-      } else {
-        document.getElementById('email-group').classList.add('hidden');
-        event.target.classList.add('active');
-      }
-    }
+  <!-- Bot Management Drawer -->
+  <div id="bot-drawer" class="drawer">
+    <div class="drawer-header">
+      <div>
+        <h3 id="drawer-bot-title">Bot Workspace</h3>
+        <span id="drawer-bot-status" style="font-size: 0.8rem; color: var(--text-muted);">Offline</span>
+      </div>
+      <button class="close-btn" onclick="closeDrawer()">&times;</button>
+    </div>
 
-    function submitAuth() {
-      const username = document.getElementById('auth-username').value;
-      const password = document.getElementById('auth-password').value;
-      const email = document.getElementById('auth-email').value;
-      const errBox = document.getElementById('auth-error');
+    <div class="drawer-tabs">
+      <button class="tab-btn active" onclick="switchTab('tab-console')">Console</button>
+      <button class="tab-btn" onclick="switchTab('tab-hcffa')">HardcoreFFA</button>
+      <button class="tab-btn" onclick="switchTab('tab-inventory')" onclick="requestInventory()">Inventory</button>
+      <button class="tab-btn" onclick="switchTab('tab-meta')">Info</button>
+    </div>
 
-      errBox.textContent = '';
+    <div class="drawer-body">
+      <!-- Console Tab -->
+      <div id="tab-console" class="tab-content active">
+        <div id="drawer-chat-log" class="console-log"></div>
+        <div class="input-row">
+          <input type="text" id="drawer-chat-input" placeholder="Send server command or chat...">
+          <button class="btn-glow" onclick="sendDrawerChat()">Send</button>
+        </div>
+      </div>
 
-      const endpoint = currentAuthMode === 'login' ? '/api/login' : '/api/register';
-      const body = currentAuthMode === 'login' ? { username, password } : { username, email, password };
-
-      fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      }).then(r => r.json()).then(data => {
-        if (data.error) {
-          errBox.textContent = data.error;
-        } else {
-          document.getElementById('auth-overlay').classList.add('hidden');
-          document.getElementById('user-display').textContent = `User: ${data.user.username}`;
-          location.reload();
-        }
-      });
-    }
-
-    function logout() {
-      fetch('/api/logout', { method: 'POST' }).then(() => location.reload());
-    }
-
-    // Deploy Bot
-    function deployBot() {
-      const config = {
-        username: document.getElementById('bot-username').value,
-        host: document.getElementById('bot-host').value,
-        port: document.getElementById('bot-port').value,
-        proxy: document.getElementById('bot-proxy').value
-      };
-
-      socket.emit('spawn_bot', config);
-    }
-
-    // Proxy Scraper Trigger
-    function startProxyScraper() {
-      const logBox = document.getElementById('proxy-log-box');
-      logBox.innerHTML = '';
-      socket.emit('request_scrape_and_verify');
-    }
-
-    socket.on('proxy_log', (msg) => {
-      const logBox = document.getElementById('proxy-log-box');
-      const div = document.createElement('div');
-      div.textContent = msg;
-      logBox.appendChild(div);
-      logBox.scrollTop = logBox.scrollHeight;
-    });
-
-    socket.on('proxy_verified_single', (proxyStr) => {
-      const proxyInput = document.getElementById('bot-proxy');
-      if (!proxyInput.value) {
-        proxyInput.value = proxyStr;
-      }
-    });
-
-    // Active Bot Status & List Updates
-    socket.on('bot_status_update', (data) => {
-      activeBotsMap.set(data.botId, data);
-      renderBotList();
-    });
-
-    function renderBotList() {
-      const container = document.getElementById('bot-list');
-      container.innerHTML = '';
-
-      activeBotsMap.forEach((bot, id) => {
-        const div = document.createElement('div');
-        div.className = `bot-card ${selectedBotId === id ? 'selected' : ''}`;
-        div.onclick = () => selectBot(id);
-
-        const isOnline = bot.status === 'Online';
-        div.innerHTML = `
-          <div><strong>${bot.username}</strong></div>
-          <div style="font-size: 0.8rem;" class="${isOnline ? 'status-online' : 'status-offline'}">
-            ● ${bot.status}
+      <!-- HardcoreFFA Section -->
+      <div id="tab-hcffa" class="tab-content">
+        <div class="panel-section">
+          <h4>HardcoreFFA Engine</h4>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
+            Triggers <strong>/play hardcoreffa</strong>, strips off armor every 60s, auto-respawns on death, and follows the specified target player.
+          </p>
+          <div class="input-group">
+            <label>Target Player Username</label>
+            <input type="text" id="hcffa-target" placeholder="Enter target username">
           </div>
-        `;
-        container.appendChild(div);
-      });
-    }
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-glow block" onclick="startHcffa()">Start Machine</button>
+            <button class="btn-outline block" onclick="stopHcffa()">Stop Machine</button>
+          </div>
+        </div>
+      </div>
 
-    function selectBot(botId) {
-      selectedBotId = botId;
-      renderBotList();
-    }
+      <!-- Inventory Tab -->
+      <div id="tab-inventory" class="tab-content">
+        <button class="btn-outline block" style="margin-bottom: 12px;" onclick="requestInventory()">Fetch Inventory</button>
+        <div id="inventory-grid" class="inventory-grid"></div>
+      </div>
 
-    // Terminal Logging
-    socket.on('bot_log', (data) => {
-      if (data.botId === selectedBotId) {
-        appendTerminalLog(`[SYSTEM] ${data.message}`);
-      }
-    });
+      <!-- Info / Metadata & Disconnect Tab -->
+      <div id="tab-meta" class="tab-content">
+        <div class="panel-section">
+          <h4>Bot Endpoint Details</h4>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 6px;">Host: <span id="meta-host" style="color: var(--text-main);"></span></p>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Port: <span id="meta-port" style="color: var(--text-main);"></span></p>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Owner: <span id="meta-owner" style="color: var(--text-main);"></span></p>
+        </div>
+        <button class="btn-outline block" style="border-color: var(--danger); color: var(--danger);" onclick="disconnectCurrentBot()">Disconnect Bot</button>
+      </div>
+    </div>
+  </div>
 
-    socket.on('bot_chat_log', (data) => {
-      if (data.botId === selectedBotId) {
-        appendTerminalLog(`[CHAT] ${data.message}`);
-      }
-    });
+  <!-- Spawn Modal -->
+  <div id="spawn-modal" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Spawn Minecraft Bot</h3>
+        <button class="close-btn" onclick="closeSpawnModal()">&times;</button>
+      </div>
+      <form onsubmit="handleSpawnBot(event)">
+        <div class="input-group">
+          <label>Username</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="bot-user" required>
+            <button type="button" class="btn-outline" onclick="generateUsername()">Gen Pro</button>
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="input-group"><label>Host IP</label><input type="text" id="bot-host" required></div>
+          <div class="input-group"><label>Port</label><input type="text" id="bot-port" value="25565" required></div>
+        </div>
+        <div class="input-group"><label>Version (Optional)</label><input type="text" id="bot-version" placeholder="e.g. 1.20.1"></div>
+        <div class="input-group"><label>SOCKS5 Proxy (IP:PORT - Optional)</label><input type="text" id="bot-proxy" placeholder="127.0.0.1:1080"></div>
+        <button type="submit" class="btn-glow block" style="margin-top: 12px;">Connect Instance</button>
+      </form>
+    </div>
+  </div>
 
-    function appendTerminalLog(msg) {
-      const box = document.getElementById('bot-terminal-box');
-      const div = document.createElement('div');
-      div.textContent = msg;
-      box.appendChild(div);
-      box.scrollTop = box.scrollHeight;
-    }
+  <!-- Tools & Proxy Modal -->
+  <div id="tools-modal" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Network & Proxy Tools</h3>
+        <button class="close-btn" onclick="closeToolsModal()">&times;</button>
+      </div>
 
-    function sendChat() {
-      const input = document.getElementById('chat-input');
-      if (!selectedBotId || !input.value) return;
+      <div class="panel-section">
+        <h4>TCP Proxy Handshake Tester</h4>
+        <div style="display: flex; gap: 8px; margin-top: 8px;">
+          <input type="text" id="test-proxy-input" placeholder="IP:PORT" style="flex:1; padding: 8px; background: var(--bg-main); border: 1px solid var(--border-glow); border-radius: var(--radius); color: var(--text-main);">
+          <button class="btn-glow" onclick="testProxyTCP()">Test</button>
+        </div>
+        <div id="proxy-test-result" style="margin-top: 8px; font-size: 0.8rem;" class="hidden"></div>
+      </div>
 
-      socket.emit('send_chat', { botId: selectedBotId, text: input.value });
-      input.value = '';
-    }
+      <div class="panel-section">
+        <h4>SOCKS5 Scraper</h4>
+        <button class="btn-outline block" style="margin-bottom: 8px;" onclick="scrapeProxies()">Fetch Live SOCKS5 Proxies</button>
+        <div id="scraped-proxies-list" style="max-height: 120px; overflow-y: auto; font-family: var(--font-mono); font-size: 0.75rem; background: var(--bg-main); padding: 8px; border-radius: var(--radius); border: 1px solid var(--border-glow);"></div>
+      </div>
+    </div>
+  </div>
 
-    // Hardcore FFA Controls
-    function saveFFASettings() {
-      if (!selectedBotId) return alert('Select an active bot first.');
+  <!-- Admin Screen -->
+  <div id="admin-screen" class="screen">
+    <div class="dash-container">
+      <h2 style="margin-bottom: 20px;">Admin Portal</h2>
+      <div class="panel-section" style="overflow-x: auto;">
+        <table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 0.85rem;">
+          <thead>
+            <tr style="border-b: 1px solid var(--border-glow); color: var(--text-muted);">
+              <th style="padding: 10px;">Username</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Bots</th>
+              <th>Joined</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="admin-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
-      const enabled = document.getElementById('ffa-enabled').checked;
-      const kitCommand = document.getElementById('ffa-kit-cmd').value;
-      const autoAttack = document.getElementById('ffa-auto-attack').checked;
-
-      socket.emit('toggle_ffa_mode', { botId: selectedBotId, enabled, kitCommand, autoAttack });
-    }
-
-    function disconnectSelectedBot() {
-      if (!selectedBotId) return;
-      socket.emit('disconnect_bot', { botId: selectedBotId });
-    }
-  </script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
