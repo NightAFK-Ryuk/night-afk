@@ -12,7 +12,19 @@ function showScreen(screenId) {
   if (screenId === 'admin-screen') loadAdminUsers();
 }
 
-// Session Sync
+// Scroll Reveal Observer
+window.addEventListener('scroll', () => {
+  const reveals = document.querySelectorAll('.reveal');
+  reveals.forEach(el => {
+    const windowHeight = window.innerHeight;
+    const elementTop = el.getBoundingClientRect().top;
+    if (elementTop < windowHeight - 100) {
+      el.classList.add('active');
+    }
+  });
+});
+
+// Authentication Sync
 async function checkAuth() {
   try {
     const res = await fetch('/api/me');
@@ -30,11 +42,11 @@ async function checkAuth() {
   }
 }
 
-function updateNav(authenticated) {
-  document.getElementById('nav-login-btn').classList.toggle('hidden', authenticated);
-  document.getElementById('nav-register-btn').classList.toggle('hidden', authenticated);
-  document.getElementById('nav-dash-btn').classList.toggle('hidden', !authenticated);
-  document.getElementById('nav-logout-btn').classList.toggle('hidden', !authenticated);
+function updateNav(auth) {
+  document.getElementById('nav-login-btn').classList.toggle('hidden', auth);
+  document.getElementById('nav-register-btn').classList.toggle('hidden', auth);
+  document.getElementById('nav-dash-btn').classList.toggle('hidden', !auth);
+  document.getElementById('nav-logout-btn').classList.toggle('hidden', !auth);
   
   if (currentUser && currentUser.role === 'admin') {
     document.getElementById('nav-admin-btn').classList.remove('hidden');
@@ -43,7 +55,6 @@ function updateNav(authenticated) {
   }
 }
 
-// Authentication
 async function handleLogin(e) {
   e.preventDefault();
   const username = document.getElementById('login-user').value;
@@ -93,7 +104,7 @@ async function logout() {
   showScreen('hero-screen');
 }
 
-// Bot Instance Rendering
+// Bot Synchronization & Roster
 socket.on('bot_sync', (list) => {
   activeBots.clear();
   list.forEach(bot => activeBots.set(bot.botId, bot));
@@ -104,7 +115,6 @@ socket.on('bot_status_update', (data) => {
   const existing = activeBots.get(data.botId) || {};
   activeBots.set(data.botId, { ...existing, ...data });
   renderBotGrid();
-  if (selectedBotId === data.botId) updateDrawerHeader();
 });
 
 socket.on('bot_health_update', ({ botId, health, food }) => {
@@ -117,15 +127,11 @@ socket.on('bot_health_update', ({ botId, health, food }) => {
 });
 
 socket.on('bot_log', ({ botId, message }) => {
-  if (selectedBotId === botId) {
-    appendLog(message);
-  }
+  if (selectedBotId === botId) appendLog(message);
 });
 
 socket.on('bot_chat_log', ({ botId, message }) => {
-  if (selectedBotId === botId) {
-    appendLog(message);
-  }
+  if (selectedBotId === botId) appendLog(message);
 });
 
 socket.on('bot_removed', (botId) => {
@@ -145,21 +151,21 @@ function renderBotGrid() {
     card.onclick = () => openBotDrawer(bot.botId);
 
     card.innerHTML = `
-      <div class="bot-card-header">
+      <div class="bot-card-head">
         <strong>${bot.username}</strong>
-        <span class="status-indicator ${isOnline ? 'online' : ''}"></span>
+        <span class="status-dot ${isOnline ? 'online' : ''}"></span>
       </div>
-      <p class="subtitle">${bot.host}:${bot.port}</p>
-      <div class="stat-bar">
-        <span>HP: ${bot.health || 0} / 20</span>
-        <span>Food: ${bot.food || 0} / 20</span>
+      <p style="font-size: 0.8rem; color: var(--text-muted);">${bot.host}:${bot.port}</p>
+      <div style="display: flex; justify-content: space-between; margin-top: 12px; font-size: 0.8rem;">
+        <span>HP: ${bot.health || 0}/20</span>
+        <span>Food: ${bot.food || 0}/20</span>
       </div>
     `;
     grid.appendChild(card);
   });
 }
 
-// Drawer Inspection & Controls
+// Drawer Inspection Panel
 function openBotDrawer(botId) {
   selectedBotId = botId;
   const bot = activeBots.get(botId);
@@ -188,7 +194,6 @@ function closeDrawer() {
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  
   event.target.classList.add('active');
   document.getElementById(tabId).classList.add('active');
 }
@@ -220,16 +225,13 @@ function saveEatSettings() {
 
 function startPvP() {
   const target = document.getElementById('pvp-target').value;
-  if (selectedBotId && target) {
-    socket.emit('start_pvp', { botId: selectedBotId, targetUsername: target });
-  }
+  if (selectedBotId && target) socket.emit('start_pvp', { botId: selectedBotId, targetUsername: target });
 }
 
 function stopPvP() {
   if (selectedBotId) socket.emit('stop_pvp', { botId: selectedBotId });
 }
 
-// Inventory Visualization
 function requestInventory() {
   if (selectedBotId) socket.emit('fetch_inventory', selectedBotId);
 }
@@ -251,7 +253,34 @@ socket.on('bot_inventory_update', ({ botId, slots }) => {
   });
 });
 
-// Global Hub Actions
+// Utilities Modal (Proxy & Generator)
+function openToolsModal() { document.getElementById('tools-modal').classList.add('open'); }
+function closeToolsModal() { document.getElementById('tools-modal').classList.remove('open'); }
+
+function testProxyTCP() {
+  const proxy = document.getElementById('test-proxy-input').value;
+  if (proxy) socket.emit('test_proxy_tcp', proxy);
+}
+
+socket.on('proxy_test_result', (res) => {
+  const box = document.getElementById('proxy-test-result');
+  box.classList.remove('hidden');
+  box.textContent = res.success ? `✅ TCP Handshake Successful: ${res.host}:${res.port}` : `❌ Connection Failed: ${res.reason}`;
+});
+
+function scrapeProxies() {
+  socket.emit('scrape_proxies');
+}
+
+socket.on('scraped_proxies_res', (list) => {
+  const box = document.getElementById('scraped-proxies-list');
+  box.innerHTML = list.length ? list.join('<br>') : 'Failed to fetch proxies.';
+});
+
+function generateUsername() { socket.emit('get_random_username'); }
+socket.on('random_username_res', (name) => { document.getElementById('bot-user').value = name; });
+
+// Global Hub
 function sendGlobalChat() {
   const input = document.getElementById('global-chat-input');
   if (input.value) {
@@ -260,11 +289,8 @@ function sendGlobalChat() {
   }
 }
 
-function triggerGlobalMove(action) {
-  socket.emit('global_move', { action });
-}
+function triggerGlobalMove(action) { socket.emit('global_move', { action }); }
 
-// Modal Handlers
 function openSpawnModal() { document.getElementById('spawn-modal').classList.add('open'); }
 function closeSpawnModal() { document.getElementById('spawn-modal').classList.remove('open'); }
 
@@ -288,7 +314,7 @@ async function loadAdminUsers() {
   const res = await fetch('/api/admin/users');
   if (!res.ok) return;
   const users = await res.json();
-  const tbody = document.getElementById('admin-user-table');
+  const tbody = document.getElementById('admin-table-body');
   tbody.innerHTML = '';
 
   users.forEach(u => {
@@ -297,19 +323,19 @@ async function loadAdminUsers() {
       <td><strong>${u.username}</strong></td>
       <td>${u.email}</td>
       <td>${u.role}</td>
-      <td><span class="badge">${u.status}</span></td>
-      <td>${u.activeBots}</td>
+      <td>${u.status}</td>
+      <td>${u.botCount}</td>
       <td>${new Date(u.createdAt).toLocaleDateString()}</td>
       <td>
-        ${u.status === 'pending' ? `<button class="btn-primary" onclick="adminUserAction('${u.username}', 'activate')">Approve</button>` : ''}
-        ${u.username !== 'Ryuk' ? `<button class="btn-border" onclick="adminUserAction('${u.username}', 'delete')">Remove</button>` : ''}
+        ${u.status === 'pending' ? `<button class="btn-glow" onclick="adminAction('${u.username}', 'activate')">Approve</button>` : ''}
+        ${u.username !== 'Ryuk' ? `<button class="btn-outline" onclick="adminAction('${u.username}', 'delete')">Delete</button>` : ''}
       </td>
     `;
     tbody.appendChild(tr);
   });
 }
 
-async function adminUserAction(targetUser, action) {
+async function adminAction(targetUser, action) {
   await fetch('/api/admin/user-action', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -318,6 +344,6 @@ async function adminUserAction(targetUser, action) {
   loadAdminUsers();
 }
 
-// Initialize Application
+// Init
 checkAuth();
-  
+    
