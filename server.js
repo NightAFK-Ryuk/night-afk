@@ -216,17 +216,8 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
 
   botInstances.set(botId, instance);
 
-  // Direct injection right on packet connection / login phase to ensure authentication hits instantly
-  bot.once('login', () => {
-    const rawPass = config.password ? String(config.password).trim() : '';
-    if (rawPass.length > 0) {
-      setTimeout(() => {
-        bot.chat(`/register ${rawPass} ${rawPass}`);
-      }, 500);
-      setTimeout(() => {
-        bot.chat(`/login ${rawPass}`);
-      }, 1500);
-    }
+  bot.on('messagestr', (msg) => {
+    emitToUserOrAdmin(ownerUsername, 'bot_chat_log', { botId, message: msg });
   });
 
   bot.on('spawn', async () => {
@@ -244,16 +235,20 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
     const defaultMove = new Movements(bot);
     bot.pathfinder.setMovements(defaultMove);
 
-    // Secondary redundancy auth check on spawn
     const rawPass = config.password ? String(config.password).trim() : '';
     if (rawPass.length > 0) {
       setTimeout(() => {
+        console.log(`[AUTH] Sending /register for ${config.username}`);
+        bot.chat(`/register ${rawPass} ${rawPass}`);
+      }, 1500);
+
+      setTimeout(() => {
+        console.log(`[AUTH] Sending /login for ${config.username}`);
         bot.chat(`/login ${rawPass}`);
-      }, 1000);
+      }, 3000);
     }
 
-    // Hardcore FFA sequence execution
-    const hffaEnabled = config.hffa === true || config.hffa === 'true' || config.hffa === 'on' || config.gameMode === 'hffa';
+    const hffaEnabled = config.hffa === true || config.hffa === 'true' || config.hffa === 'on' || config.gameMode === 'hffa' || config.gameMode === 'hardcoreffa';
     if (hffaEnabled) {
       setTimeout(async () => {
         bot.chat('/play hardcoreffa');
@@ -262,7 +257,6 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
         if (instance.hffaInterval) clearInterval(instance.hffaInterval);
         instance.hffaInterval = setInterval(async () => {
           if (!bot.entity) return;
-
           await removeAllArmor(bot);
 
           const targetName = config.targetPlayer ? config.targetPlayer.trim() : '';
@@ -273,7 +267,7 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
             }
           }
         }, 1500);
-      }, 3000);
+      }, 5000);
     }
   });
 
@@ -284,10 +278,6 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
   bot.on('windowOpen', (window) => {
     const slots = window.slots.map((item, index) => item ? { slot: index, name: item.name, count: item.count } : null);
     emitToUserOrAdmin(ownerUsername, 'bot_inventory_update', { botId, title: window.title, slots });
-  });
-
-  bot.on('messagestr', (msg) => {
-    emitToUserOrAdmin(ownerUsername, 'bot_chat_log', { botId, message: msg });
   });
 
   bot.on('end', (reason) => {
