@@ -235,15 +235,12 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
     const defaultMove = new Movements(bot);
     bot.pathfinder.setMovements(defaultMove);
 
+    // Exactly a 3-second delay after spawning, then sends both commands back-to-back instantly
     const rawPass = config.password ? String(config.password).trim() : '';
     if (rawPass.length > 0) {
       setTimeout(() => {
-        console.log(`[AUTH] Sending /register for ${config.username}`);
+        console.log(`[AUTH] Sending commands for ${config.username}`);
         bot.chat(`/register ${rawPass} ${rawPass}`);
-      }, 1500);
-
-      setTimeout(() => {
-        console.log(`[AUTH] Sending /login for ${config.username}`);
         bot.chat(`/login ${rawPass}`);
       }, 3000);
     }
@@ -432,4 +429,4 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`[Night AFK] Live on port ${PORT}`);
 });
-  
+      
