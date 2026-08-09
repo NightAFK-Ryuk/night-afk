@@ -1,0 +1,19 @@
+{
+  "name": "night-afk",
+  "version": "1.0.0",
+  "description": "Night AFK Private Bot Control Center",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "mineflayer": "^4.12.0",
+    "mineflayer-auto-eat": "^2.0.1",
+    "mineflayer-pathfinder": "^2.4.0",
+    "mineflayer-pvp": "^1.3.2",
+    "socket.io": "^4.7.2",
+    "socks": "^2.7.1"
+  }
+}
