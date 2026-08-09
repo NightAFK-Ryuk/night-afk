@@ -1,5 +1,6 @@
 const express = require('express');
 const session = require('express-session');
+const FileStore = require('session-file-store')(session);
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
@@ -16,21 +17,32 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Permanent session fix: prevents automatic random logouts
+// Railway Persistent Volume Path mapping for sessions so logouts never happen
+const sessionStorePath = process.env.RAILWAY_VOLUME_MOUNT_PATH 
+  ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'sessions') 
+  : './sessions';
+
 app.use(session({
-  secret: 'night-afk-super-secret-key-fixed',
+  store: new FileStore({
+    path: sessionStorePath,
+    secret: 'night-afk-permanent-secret-key',
+    resave: true,
+    saveUninitialized: true,
+    retries: 0
+  }),
+  secret: 'night-afk-permanent-secret-key',
   resave: true,
   saveUninitialized: true,
   cookie: { 
     secure: false, 
-    maxAge: 30 * 24 * 60 * 60 * 1000 // 30 Days persistence
+    maxAge: 365 * 24 * 60 * 60 * 1000 // 1 Year persistence
   }
 }));
 
 const users = new Map();
 const activeBots = new Map();
 
-users.set('Ryuk', { username: 'Ryuk', password: 'password123', email: 'ryuk@nightafk.com', role: 'admin', status: 'active', createdAt: new Date() });
+users.set('Ryuk', { username: 'Ryuk', password: 'Ryuk#13', email: 'ryuk@nightafk.com', role: 'admin', status: 'active', createdAt: new Date() });
 
 app.get('/api/me', (req, res) => {
   if (req.session && req.session.user) return res.json(req.session.user);
@@ -132,7 +144,6 @@ io.on('connection', (socket) => {
       keepAlive: true
     };
 
-    // Fixed SOCKS5 TCP Proxy Handling Block
     if (config.proxy && config.proxy.trim() !== '') {
       const parts = config.proxy.trim().split(':');
       const pHost = parts[0];
@@ -404,4 +415,4 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`NIGHT AFK Core running on port ${PORT}`));
-      
+          
