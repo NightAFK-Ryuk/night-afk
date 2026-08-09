@@ -1,7 +1,7 @@
 {
-  "name": "night-afk-bot-host",
-  "version": "1.0.0",
-  "description": "Minecraft AFK Bot Web Interface",
+  "name": "night-afk-dashboard",
+  "version": "2.0.0",
+  "description": "Minimalist High-Performance Minecraft AFK Dashboard",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
