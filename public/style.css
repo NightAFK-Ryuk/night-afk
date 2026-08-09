@@ -19,7 +19,6 @@ body { background: var(--bg-main); color: var(--text-main); min-height: 100vh; o
 
 .hidden { display: none !important; }
 
-/* Glow Effects & Typography */
 .glow-title {
   font-size: 3.5rem;
   font-weight: 800;
@@ -83,7 +82,6 @@ body { background: var(--bg-main); color: var(--text-main); min-height: 100vh; o
 .btn-text:hover { color: var(--text-main); }
 .block { width: 100%; }
 
-/* Navigation */
 .navbar {
   display: flex;
   justify-content: space-between;
@@ -100,7 +98,6 @@ body { background: var(--bg-main); color: var(--text-main); min-height: 100vh; o
 .logo span { color: var(--text-muted); }
 .nav-links { display: flex; gap: 24px; align-items: center; }
 
-/* Screen Router System */
 .screen { display: none; min-height: calc(100vh - 140px); padding: 40px; }
 .screen.active { display: block; animation: fadeIn 0.3s ease; }
 
@@ -109,7 +106,6 @@ body { background: var(--bg-main); color: var(--text-main); min-height: 100vh; o
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Landing / Features Section */
 .hero-container { max-width: 1100px; margin: 0 auto; text-align: center; padding-top: 60px; }
 .glow-pill { display: inline-block; padding: 6px 16px; background: var(--bg-card); border: 1px solid var(--border-glow); border-radius: 30px; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 24px; }
 .hero-subtitle { max-width: 650px; margin: 20px auto 36px; color: var(--text-muted); font-size: 1.1rem; line-height: 1.6; }
@@ -130,11 +126,9 @@ body { background: var(--bg-main); color: var(--text-main); min-height: 100vh; o
 .feature-card h3 { font-size: 1.1rem; margin-bottom: 8px; }
 .feature-card p { font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; }
 
-/* Scroll Reveal Animations */
 .reveal { opacity: 0; transform: translateY(20px); transition: all 0.6s ease; }
 .reveal.active { opacity: 1; transform: translateY(0); }
 
-/* Dashboard & Cards */
 .dash-container { max-width: 1200px; margin: 0 auto; }
 .dash-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
 .dash-head-actions { display: flex; gap: 12px; }
@@ -155,7 +149,6 @@ body { background: var(--bg-main); color: var(--text-main); min-height: 100vh; o
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
 .status-dot.online { background: var(--success); box-shadow: 0 0 8px var(--success); }
 
-/* Drawer Workspace */
 .drawer {
   position: fixed; right: -500px; top: 0; width: 480px; height: 100vh;
   background: var(--bg-card); border-left: 1px solid var(--border-glow);
@@ -179,7 +172,6 @@ body { background: var(--bg-main); color: var(--text-main); min-height: 100vh; o
 .panel-section h4 { margin-bottom: 6px; font-size: 0.9rem; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-/* Forms & Modals */
 .auth-card { max-width: 400px; margin: 80px auto; background: var(--bg-card); border: 1px solid var(--border-glow); border-radius: var(--radius); padding: 36px; }
 .input-group { margin-bottom: 16px; text-align: left; }
 .input-group label { display: block; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 6px; }
@@ -194,4 +186,3 @@ body { background: var(--bg-main); color: var(--text-main); min-height: 100vh; o
 .inv-slot { aspect-ratio: 1; background: var(--bg-panel); border: 1px solid var(--border-glow); border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 0.6rem; text-align: center; cursor: pointer; position: relative; }
 .inv-slot:hover { border-color: var(--text-main); }
 .inv-count { position: absolute; bottom: 2px; right: 2px; color: #ffeb3b; font-weight: bold; }
-                   
