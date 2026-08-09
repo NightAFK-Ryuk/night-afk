@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NIGHT AFK | Minimalist Bot Manager</title>
+  <title>NIGHT AFK | 24/7 Minecraft Bot Automation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script src="/socket.io/socket.io.js"></script>
 </head>
@@ -11,26 +14,83 @@
 
   <!-- Navigation Bar -->
   <nav class="navbar">
-    <div class="logo" onclick="showScreen('hero-screen')">NIGHT<span>AFK</span></div>
-    <div class="nav-links" id="nav-links">
-      <button class="btn-text" onclick="showScreen('hero-screen')">Home</button>
+    <div class="logo glow-text" onclick="showScreen('hero-screen')">NIGHT<span>AFK</span></div>
+    <div class="nav-links">
+      <button class="btn-text" onclick="showScreen('hero-screen')">Overview</button>
       <button class="btn-text" id="nav-login-btn" onclick="showScreen('login-screen')">Sign In</button>
       <button class="btn-text" id="nav-register-btn" onclick="showScreen('register-screen')">Register</button>
-      <button class="btn-text hidden" id="nav-dash-btn" onclick="showScreen('dashboard-screen')">Dashboard</button>
+      <button class="btn-text hidden" id="nav-dash-btn" onclick="showScreen('dashboard-screen')">Console</button>
       <button class="btn-text hidden" id="nav-admin-btn" onclick="showScreen('admin-screen')">Admin Portal</button>
-      <button class="btn-border hidden" id="nav-logout-btn" onclick="logout()">Sign Out</button>
+      <button class="btn-glow hidden" id="nav-logout-btn" onclick="logout()">Sign Out</button>
     </div>
   </nav>
 
-  <!-- 1. Hero / Introduction Screen -->
+  <!-- 1. Hero / Landing Page -->
   <section id="hero-screen" class="screen active">
-    <div class="hero-content">
-      <div class="badge">Version 2.0 • Ultra Low Latency</div>
-      <h1>AFK Automation, Redefined.</h1>
-      <p>High-performance Minecraft bot orchestration. Isolated session workspaces, custom golden apple consumption intervals, and robust SOCKS5 routing.</p>
+    <div class="hero-container">
+      <div class="glow-pill">● Infinite AFK Hosting Online</div>
+      <h1 class="glow-title">Welcome To Night AFK</h1>
+      <p class="hero-subtitle">AFK Your Bot 24/7 Without Any Issue. High-performance Minecraft automation powered by custom socket routing and multi-account state tracking.</p>
+      
       <div class="hero-actions">
-        <button class="btn-primary" onclick="showScreen('register-screen')">Get Started</button>
-        <button class="btn-secondary" onclick="showScreen('login-screen')">Access Console</button>
+        <button class="btn-glow-lg" onclick="showScreen('register-screen')">Get Started</button>
+        <button class="btn-outline-lg" onclick="showScreen('login-screen')">Open Dashboard</button>
+      </div>
+
+      <!-- Feature Documentation Section (Scroll Animation) -->
+      <div class="features-header reveal">
+        <h2>Engine Capabilities & Features</h2>
+        <p>Explore our automation suites below</p>
+      </div>
+
+      <div class="feature-grid">
+        <div class="feature-card reveal">
+          <div class="feature-icon">🛡️</div>
+          <h3>Socks5 (TCP)</h3>
+          <p>Full TCP SOCKS5 proxy integration. Bypass IP rate limits and server anti-VPN restrictions by routing bot connections through isolated proxy endpoints.</p>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="feature-icon">⚔️</div>
+          <h3>PvP Engine</h3>
+          <p>Combat pathing algorithm. Engages targets automatically and features an uninterrupted Golden Apple loop that consumes GApples when health drops before resuming combat.</p>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="feature-icon">💬</div>
+          <h3>Chat Console</h3>
+          <p>Real-time bidirectional chat interface. Send commands, view server output logs, or trigger global chat broadcasts across all active bot instances simultaneously.</p>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="feature-icon">🏃</div>
+          <h3>Movement System</h3>
+          <p>Built-in spatial movement and pathfinding. Execute jumps, automated forward strides, and spatial tracking to bypass server idle kick scripts.</p>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="feature-icon">🎒</div>
+          <h3>Inventory Visualizer</h3>
+          <p>Interactive 36-slot inventory screen. Inspect held items, view stack counts, and click slots directly from your web browser.</p>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="feature-icon">⚡</div>
+          <h3>Username Generator</h3>
+          <p>Instant online username generation algorithm. Generate unique, valid Minecraft usernames with a single click during instance creation.</p>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="feature-icon">📡</div>
+          <h3>Proxy Scraper</h3>
+          <p>Integrated proxy aggregator. Fetch fresh, live SOCKS5 proxy lists directly inside the application workspace.</p>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="feature-icon">🔍</div>
+          <h3>Proxy Checker (TCP)</h3>
+          <p>Real-time TCP handshake proxy tester. Verify proxy uptime and response speed before attaching them to your bots.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -38,8 +98,8 @@
   <!-- 2. Login Screen -->
   <section id="login-screen" class="screen">
     <div class="auth-card">
-      <h2>Console Access</h2>
-      <p class="subtitle">Enter your account credentials</p>
+      <h2 class="glow-text">Console Authentication</h2>
+      <p class="subtitle">Access your bot control environment</p>
       <form onsubmit="handleLogin(event)">
         <div class="input-group">
           <label>Username</label>
@@ -49,7 +109,7 @@
           <label>Password</label>
           <input type="password" id="login-pass" required placeholder="••••••••">
         </div>
-        <button type="submit" class="btn-primary block">Authenticate</button>
+        <button type="submit" class="btn-glow block">Login</button>
       </form>
       <div id="login-err" class="alert-box hidden"></div>
     </div>
@@ -58,22 +118,22 @@
   <!-- 3. Register Screen -->
   <section id="register-screen" class="screen">
     <div class="auth-card">
-      <h2>Account Registration</h2>
-      <p class="subtitle">Submit credentials for Admin approval</p>
+      <h2 class="glow-text">Account Application</h2>
+      <p class="subtitle">Register an account for Admin approval</p>
       <form onsubmit="handleRegister(event)">
         <div class="input-group">
           <label>Username</label>
-          <input type="text" id="reg-user" required placeholder="Desired username">
+          <input type="text" id="reg-user" required placeholder="Username">
         </div>
         <div class="input-group">
           <label>Email</label>
-          <input type="email" id="reg-email" required placeholder="user@domain.com">
+          <input type="email" id="reg-email" required placeholder="email@domain.com">
         </div>
         <div class="input-group">
           <label>Password</label>
           <input type="password" id="reg-pass" required placeholder="••••••••">
         </div>
-        <button type="submit" class="btn-primary block">Submit Application</button>
+        <button type="submit" class="btn-glow block">Register</button>
       </form>
       <div id="reg-msg" class="alert-box hidden"></div>
     </div>
@@ -81,181 +141,207 @@
 
   <!-- 4. Dashboard Screen -->
   <section id="dashboard-screen" class="screen">
-    <div class="dashboard-layout">
-      
-      <!-- Main Content / Bot Roster -->
-      <main class="dash-main">
-        <header class="dash-header">
-          <div>
-            <h2>Instance Fleet</h2>
-            <p class="subtitle">Manage active sessions or deploy new instances</p>
-          </div>
-          <button class="btn-primary" onclick="openSpawnModal()">+ Deploy Bot</button>
-        </header>
-
-        <!-- Global Multi-Bot Operations Panel -->
-        <div class="global-controls">
-          <h3>Global Command Hub</h3>
-          <div class="control-row">
-            <input type="text" id="global-chat-input" placeholder="Broadcast message across all instances...">
-            <button class="btn-secondary" onclick="sendGlobalChat()">Broadcast</button>
-            <button class="btn-border" onclick="triggerGlobalMove('jump')">Global Jump</button>
-            <button class="btn-border" onclick="triggerGlobalMove('forward')">Global Step</button>
-          </div>
+    <div class="dash-container">
+      <header class="dash-header">
+        <div>
+          <h2 class="glow-text">Active Bot Fleet</h2>
+          <p class="subtitle">Control all deployed instances in real-time</p>
         </div>
-
-        <!-- Bot Instances Grid -->
-        <div class="bot-grid" id="bot-grid">
-          <!-- Dynamically populated -->
+        <div class="dash-head-actions">
+          <button class="btn-outline" onclick="openToolsModal()">Tools & Utilities</button>
+          <button class="btn-glow" onclick="openSpawnModal()">+ Deploy Bot</button>
         </div>
-      </main>
+      </header>
+
+      <!-- Global Broadcast & Control Suite -->
+      <div class="global-bar">
+        <input type="text" id="global-chat-input" placeholder="Broadcast chat message across all bots...">
+        <button class="btn-glow" onclick="sendGlobalChat()">Broadcast</button>
+        <button class="btn-outline" onclick="triggerGlobalMove('jump')">Jump All</button>
+        <button class="btn-outline" onclick="triggerGlobalMove('forward')">Step All</button>
+      </div>
+
+      <!-- Bot Roster -->
+      <div class="bot-grid" id="bot-grid"></div>
     </div>
   </section>
 
-  <!-- Dedicated Bot Inspector Drawer / Workspace -->
+  <!-- Bot Inspector Drawer Workspace -->
   <div id="bot-drawer" class="drawer">
     <div class="drawer-header">
       <div>
-        <h3 id="drawer-bot-title">Bot Instance</h3>
-        <span class="badge" id="drawer-bot-status">Online</span>
+        <h3 id="drawer-bot-title" class="glow-text">Bot Instance</h3>
+        <span class="badge-status" id="drawer-bot-status">Connecting</span>
       </div>
       <button class="close-btn" onclick="closeDrawer()">&times;</button>
     </div>
 
     <div class="drawer-tabs">
-      <button class="tab-btn active" onclick="switchTab('tab-logs')">Logs & Console</button>
-      <button class="tab-btn" onclick="switchTab('tab-controls')">Combat & Health</button>
+      <button class="tab-btn active" onclick="switchTab('tab-logs')">Console Log</button>
+      <button class="tab-btn" onclick="switchTab('tab-combat')">Combat & Eating</button>
       <button class="tab-btn" onclick="switchTab('tab-inventory')" onclick="requestInventory()">Inventory</button>
       <button class="tab-btn" onclick="switchTab('tab-meta')">Diagnostics</button>
     </div>
 
     <div class="drawer-body">
-      <!-- Tab 1: Logs & Console -->
+      <!-- Tab 1: Chat Console -->
       <div id="tab-logs" class="tab-content active">
-        <div class="console-box" id="drawer-chat-log"></div>
+        <div class="console-log" id="drawer-chat-log"></div>
         <div class="input-row">
-          <input type="text" id="drawer-chat-input" placeholder="Send chat message...">
-          <button class="btn-primary" onclick="sendDrawerChat()">Send</button>
+          <input type="text" id="drawer-chat-input" placeholder="Type a message or command...">
+          <button class="btn-glow" onclick="sendDrawerChat()">Send</button>
         </div>
       </div>
 
-      <!-- Tab 2: Combat & Custom Eating Thresholds -->
-      <div id="tab-controls" class="tab-content">
-        <div class="card-section">
-          <h4>PVP Target Engagement</h4>
-          <div class="input-row">
-            <input type="text" id="pvp-target" placeholder="Target Username">
-            <button class="btn-primary" onclick="startPvP()">Engage Target</button>
-            <button class="btn-border" onclick="stopPvP()">Disengage</button>
+      <!-- Tab 2: Non-Stopping GApple PvP Engine -->
+      <div id="tab-combat" class="tab-content">
+        <div class="panel-section">
+          <h4>PvP Target Tracking</h4>
+          <p class="subtitle">Continuously attacks target and automatically consumes GApples when HP drops</p>
+          <div class="input-row margin-v">
+            <input type="text" id="pvp-target" placeholder="Target Player Username">
+            <button class="btn-glow" onclick="startPvP()">Engage</button>
+            <button class="btn-outline" onclick="stopPvP()">Stop</button>
           </div>
         </div>
 
-        <div class="card-section">
-          <h4>Custom Golden Apple & Auto-Eat Configuration</h4>
-          <p class="subtitle">Set HP ranges (1 HP = Half Heart, 20 HP = Full Health). Includes 5s cooldown.</p>
-          <div class="form-grid">
+        <div class="panel-section">
+          <h4>Golden Apple & Auto-Eat Thresholds</h4>
+          <p class="subtitle">1 HP = Half Heart. Automatically eats and resumes combat.</p>
+          <div class="grid-2">
             <div class="input-group">
               <label>Min HP Threshold (e.g. 1 HP)</label>
-              <input type="number" id="eat-min-hp" min="1" max="20" value="1">
+              <input type="number" id="eat-min-hp" value="1" min="1" max="20">
             </div>
             <div class="input-group">
               <label>Max HP Threshold (e.g. 6 HP)</label>
-              <input type="number" id="eat-max-hp" min="1" max="20" value="6">
+              <input type="number" id="eat-max-hp" value="6" min="1" max="20">
             </div>
           </div>
-          <div class="checkbox-group">
-            <input type="checkbox" id="gapple-only">
+          <div class="checkbox-row">
+            <input type="checkbox" id="gapple-only" checked>
             <label for="gapple-only">Strictly Consume Golden Apples Only</label>
           </div>
-          <button class="btn-primary block" onclick="saveEatSettings()">Apply Thresholds</button>
+          <button class="btn-glow block" onclick="saveEatSettings()">Save Thresholds</button>
         </div>
       </div>
 
-      <!-- Tab 3: Inventory Inspector -->
+      <!-- Tab 3: Inventory Grid -->
       <div id="tab-inventory" class="tab-content">
-        <div class="inventory-grid" id="inventory-grid">
-          <!-- Slots rendered dynamically -->
-        </div>
+        <div class="inventory-grid" id="inventory-grid"></div>
       </div>
 
-      <!-- Tab 4: System Diagnostics -->
+      <!-- Tab 4: Diagnostics -->
       <div id="tab-meta" class="tab-content">
-        <div class="meta-list">
-          <div class="meta-item"><span>Target IP:</span> <strong id="meta-host">-</strong></div>
-          <div class="meta-item"><span>Port:</span> <strong id="meta-port">-</strong></div>
-          <div class="meta-item"><span>Session Uptime:</span> <strong id="meta-uptime">0s</strong></div>
-          <div class="meta-item"><span>Owner Account:</span> <strong id="meta-owner">-</strong></div>
+        <div class="meta-card">
+          <div class="meta-row"><span>Host IP:</span> <strong id="meta-host">-</strong></div>
+          <div class="meta-row"><span>Port:</span> <strong id="meta-port">-</strong></div>
+          <div class="meta-row"><span>Session Uptime:</span> <strong id="meta-uptime">0s</strong></div>
+          <div class="meta-row"><span>Owner:</span> <strong id="meta-owner">-</strong></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Spawn Bot Modal -->
+  <!-- Tools & Utilities Modal (Proxy Scraper & TCP Checker) -->
+  <div id="tools-modal" class="modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="glow-text">Proxy Scraper & TCP Checker</h3>
+        <button class="close-btn" onclick="closeToolsModal()">&times;</button>
+      </div>
+      <div class="input-group">
+        <label>SOCKS5 Proxy TCP Checker (Host:Port:User:Pass)</label>
+        <div class="input-row">
+          <input type="text" id="test-proxy-input" placeholder="127.0.0.1:1080">
+          <button class="btn-glow" onclick="testProxyTCP()">Check Proxy</button>
+        </div>
+        <div id="proxy-test-result" class="alert-box hidden"></div>
+      </div>
+
+      <div class="input-group margin-top">
+        <label>Live Public SOCKS5 Proxy Scraper</label>
+        <button class="btn-outline block" onclick="scrapeProxies()">Scrape Fresh Proxies</button>
+        <div id="scraped-proxies-list" class="proxy-list-box">Click Scrape to load live proxies...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deploy Bot Modal -->
   <div id="spawn-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>Deploy Minecraft Instance</h3>
+        <h3 class="glow-text">Deploy Bot Instance</h3>
         <button class="close-btn" onclick="closeSpawnModal()">&times;</button>
       </div>
       <form onsubmit="handleSpawnBot(event)">
-        <div class="form-grid">
-          <div class="input-group">
-            <label>Bot Username</label>
-            <input type="text" id="bot-user" required placeholder="Bot_01">
+        <div class="input-group">
+          <label>Bot Username</label>
+          <div class="input-row">
+            <input type="text" id="bot-user" required placeholder="Bot Username">
+            <button type="button" class="btn-outline" onclick="generateUsername()">Generate</button>
           </div>
+        </div>
+        <div class="grid-2">
           <div class="input-group">
-            <label>Server Host / IP</label>
+            <label>Server IP / Host</label>
             <input type="text" id="bot-host" required placeholder="play.server.net">
           </div>
           <div class="input-group">
             <label>Port</label>
             <input type="number" id="bot-port" value="25565">
           </div>
+        </div>
+        <div class="grid-2">
           <div class="input-group">
             <label>Version</label>
             <input type="text" id="bot-version" value="1.8.9">
           </div>
-        </div>
-        <div class="input-group">
-          <label>Auth Password (/login & /register)</label>
-          <input type="password" id="bot-pass" placeholder="Optional">
+          <div class="input-group">
+            <label>Password (/login & /register)</label>
+            <input type="password" id="bot-pass" placeholder="Optional">
+          </div>
         </div>
         <div class="input-group">
           <label>SOCKS5 Proxy (Host:Port:User:Pass)</label>
-          <input type="text" id="bot-proxy" placeholder="127.0.0.1:1080">
+          <input type="text" id="bot-proxy" placeholder="Optional">
         </div>
-        <button type="submit" class="btn-primary block">Initialize Connection</button>
+        <button type="submit" class="btn-glow block">Spawn Bot</button>
       </form>
     </div>
   </div>
 
-  <!-- 5. Admin Screen -->
+  <!-- 5. Admin Portal Screen -->
   <section id="admin-screen" class="screen">
-    <div class="admin-container">
-      <h2>Admin Control Center</h2>
-      <p class="subtitle">System User Database & Approval Panel</p>
-
-      <div class="table-container">
+    <div class="dash-container">
+      <h2 class="glow-text">User Database & Approvals</h2>
+      <p class="subtitle">System Administration Portal</p>
+      
+      <div class="table-card">
         <table class="data-table">
           <thead>
             <tr>
-              <th>User</th>
+              <th>Username</th>
               <th>Email</th>
               <th>Role</th>
               <th>Status</th>
               <th>Active Bots</th>
-              <th>Created At</th>
-              <th>Actions</th>
+              <th>Registered</th>
+              <th>Action</th>
             </tr>
           </thead>
-          <tbody id="admin-user-table">
-            <!-- Dynamically populated -->
-          </tbody>
+          <tbody id="admin-table-body"></tbody>
         </table>
       </div>
     </div>
   </section>
 
+  <!-- Footer with Disclaimer & Copyright -->
+  <footer class="footer">
+    <p>Copyright Disclaimer &copy; 2026 <strong>NIGHT AFK</strong>. Designed & Owned by <strong>Ryuk</strong>. All Rights Reserved.</p>
+  </footer>
+
   <script src="app.js"></script>
 </body>
-</html>
+          </html>
+          
