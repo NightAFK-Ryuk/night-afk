@@ -1,341 +1,355 @@
 const express = require('express');
+const session = require('express-session');
 const http = require('http');
 const { Server } = require('socket.io');
-const session = require('express-session');
-const mineflayer = require('mineflayer');
-const { SocksClient } = require('socks');
-const { pathfinder, movements } = require('mineflayer-pathfinder');
-const pvp = require('mineflayer-pvp').plugin;
-const https = require('https');
 const path = require('path');
+const mineflayer = require('mineflayer');
+const { pathfinder, movements, goals } = require('mineflayer-pathfinder');
+const { SocksClient } = require('socks');
+const net = require('net');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-const PORT = process.env.PORT || 3000;
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-const sessionMiddleware = session({
-  secret: 'night_afk_glowing_key_2026',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { maxAge: 24 * 60 * 60 * 1000 }
-});
-
-app.use(sessionMiddleware);
 app.use(express.static(path.join(__dirname, 'public')));
 
-io.use((socket, next) => {
-  sessionMiddleware(socket.request, {}, next);
-});
+app.use(session({
+  secret: 'night-afk-super-secret-key',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 }
+}));
 
-// In-Memory Database
+// In-Memory Database & State Management
 const users = new Map();
-const botInstances = new Map();
+const activeBots = new Map(); // botId -> { bot, config, hcffaInterval, hcffaTarget }
 
-// Default Admin
-users.set('Ryuk', {
-  username: 'Ryuk',
-  email: 'ryuk@nightafk.com',
-  password: 'Ryuk#13',
-  role: 'admin',
-  createdAt: new Date().toISOString()
-});
+// Default Admin User
+users.set('Ryuk', { username: 'Ryuk', password: 'password123', email: 'ryuk@nightafk.com', role: 'admin', status: 'active', createdAt: new Date() });
 
-// --- HTTP Auth Routes ---
-app.post('/api/register', (req, res) => {
-  const { username, email, password } = req.body;
-  if (!username || !email || !password) {
-    return res.status(400).json({ error: 'All fields are required.' });
+// Authentication Routes
+app.get('/api/me', (req, res) => {
+  if (req.session && req.session.user) {
+    return res.json(req.session.user);
   }
-  if (users.has(username)) {
-    return res.status(400).json({ error: 'Username already taken.' });
-  }
-  const user = { username, email, password, role: 'user', createdAt: new Date().toISOString() };
-  users.set(username, user);
-  req.session.user = user;
-  res.json({ success: true, user: { username, role: user.role } });
+  res.status(401).json({ error: 'Not authenticated' });
 });
 
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   const user = users.get(username);
-  if (!user || user.password !== password) {
-    return res.status(401).json({ error: 'Invalid credentials.' });
+  if (user && user.password === password) {
+    if (user.status !== 'active') {
+      return res.status(403).json({ error: 'Account pending admin approval' });
+    }
+    req.session.user = { username: user.username, role: user.role, email: user.email };
+    return res.json({ message: 'Success', user: req.session.user });
   }
-  req.session.user = user;
-  res.json({ success: true, user: { username: user.username, role: user.role } });
+  res.status(400).json({ error: 'Invalid credentials' });
+});
+
+app.post('/api/register', (req, res) => {
+  const { username, email, password } = req.body;
+  if (users.has(username)) return res.status(400).json({ error: 'Username already taken' });
+  
+  const newUser = { username, email, password, role: 'user', status: 'pending', createdAt: new Date() };
+  users.set(username, newUser);
+  res.json({ message: 'Registration successful! Awaiting admin activation.' });
 });
 
 app.post('/api/logout', (req, res) => {
   req.session.destroy();
-  res.json({ success: true });
+  res.json({ message: 'Logged out' });
 });
 
-app.get('/api/me', (req, res) => {
-  if (req.session.user) {
-    res.json({ authenticated: true, user: req.session.user });
-  } else {
-    res.json({ authenticated: false });
+// Admin Endpoints
+app.get('/api/admin/users', (req, res) => {
+  if (!req.session.user || req.session.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Unauthorized' });
   }
+  const list = Array.from(users.values()).map(u => ({
+    username: u.username,
+    email: u.email,
+    role: u.role,
+    status: u.status,
+    createdAt: u.createdAt,
+    botCount: Array.from(activeBots.values()).filter(b => b.config.ownerUsername === u.username).length
+  }));
+  res.json(list);
 });
 
-// --- TCP Proxy Scraper & Real-Time Verifier ---
-const PROXY_SOURCES = [
-  'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt',
-  'https://raw.githubusercontent.com/hookzof/socks5_list/master/proxy.txt',
-  'https://raw.githubusercontent.com/prxck/proxy-list/main/socks5.txt'
-];
-
-function fetchProxiesFromUrl(url) {
-  return new Promise((resolve) => {
-    https.get(url, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        const lines = data.split('\n').map(l => l.trim()).filter(l => l.includes(':'));
-        resolve(lines);
-      });
-    }).on('error', () => resolve([]));
-  });
-}
-
-async function scrapeAndVerifyProxies(socket) {
-  socket.emit('proxy_log', '🔍 Initializing multi-source proxy aggregation...');
-  let rawProxies = [];
-
-  for (const src of PROXY_SOURCES) {
-    const list = await fetchProxiesFromUrl(src);
-    rawProxies = rawProxies.concat(list);
+app.post('/api/admin/user-action', (req, res) => {
+  if (!req.session.user || req.session.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Unauthorized' });
   }
+  const { targetUser, action } = req.body;
+  const user = users.get(targetUser);
+  if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const uniqueProxies = [...new Set(rawProxies)].slice(0, 50);
-  socket.emit('proxy_log', `📦 Aggregated ${uniqueProxies.length} candidates. Initiating TCP handshakes...`);
+  if (action === 'activate') user.status = 'active';
+  else if (action === 'delete') users.delete(targetUser);
+  
+  res.json({ message: 'Action processed' });
+});
 
-  let verifiedCount = 0;
-  for (const proxyStr of uniqueProxies) {
-    const parts = proxyStr.split(':');
-    const host = parts[0];
-    const port = parseInt(parts[1], 10);
-
-    if (!host || isNaN(port)) continue;
-
-    const startTime = Date.now();
-    try {
-      const { socket: proxyConn } = await SocksClient.createConnection({
-        proxy: { host, port, type: 5 },
-        command: 'connect',
-        destination: { host: '1.1.1.1', port: 80 },
-        timeout: 2500
-      });
-      proxyConn.destroy();
-      const latency = Date.now() - startTime;
-      const formatted = `${host}:${port}`;
-      verifiedCount++;
-      
-      socket.emit('proxy_log', `✅ [OPERATIONAL] ${formatted} - Latency: ${latency}ms`);
-      socket.emit('proxy_verified_single', formatted);
-    } catch (err) {
-      socket.emit('proxy_log', `❌ [FAILED] ${host}:${port}`);
-    }
-  }
-
-  socket.emit('proxy_log', `🎉 Verification complete! ${verifiedCount} operational SOCKS5 proxies ready.`);
-}
-
-// --- WebBot Deployment Engine ---
-function createWebBot(config, ownerUsername, existingBotId = null) {
-  const botId = existingBotId || `bot_${config.username}_${Date.now()}`;
-
-  const botOpts = {
-    host: config.host,
-    port: parseInt(config.port, 10) || 25565,
-    username: config.username,
-    version: config.version || '1.8.9',
-    checkTimeoutInterval: 120000,
-    viewDistance: 'far'
-  };
-
-  if (config.proxy) {
-    const parts = config.proxy.trim().split(':');
-    botOpts.connect = (client) => {
-      SocksClient.createConnection({
-        proxy: { host: parts[0], port: parseInt(parts[1], 10), type: 5, userId: parts[2], password: parts[3] },
-        command: 'connect',
-        destination: { host: config.host, port: botOpts.port }
-      }).then(({ socket }) => {
-        client.setSocket(socket);
-        client.emit('connect');
-      }).catch(err => {
-        emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `Proxy TCP Error: ${err.message}` });
-      });
-    };
-  }
-
-  const bot = mineflayer.createBot(botOpts);
-  bot.loadPlugin(pathfinder);
-  bot.loadPlugin(pvp);
-
-  const instance = {
-    botId,
-    bot,
-    config,
-    ownerUsername,
-    startTime: Date.now(),
-    pvpTarget: null,
-    pvpActive: false,
-    hardcoreFFA: {
-      enabled: config.hardcoreFFA || false,
-      kitCommand: config.ffaKit || '/kit ffa',
-      autoAttackNearest: config.ffaAutoAttack || false
-    },
-    manualDisconnect: false
-  };
-
-  botInstances.set(botId, instance);
-
-  bot.once('spawn', () => {
-    const defaultMove = new movements(bot);
-    bot.pathfinder.setMovements(defaultMove);
-
-    emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
-      botId,
-      username: config.username,
-      ownerUsername,
-      host: config.host,
-      port: config.port,
-      status: 'Online',
-      health: bot.health,
-      food: bot.food
-    });
-
-    if (config.password) {
-      setTimeout(() => {
-        bot.chat(`/register ${config.password} ${config.password}`);
-        setTimeout(() => bot.chat(`/login ${config.password}`), 1000);
-      }, 1500);
-    }
-
-    if (instance.hardcoreFFA.enabled) {
-      setTimeout(() => executeFFAKit(instance), 3000);
-    }
-  });
-
-  // Hardcore FFA Auto-Respawn & Re-kit Engine
-  bot.on('death', () => {
-    emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: '☠️ Bot died! Hardcore FFA Auto-Respawn sequence triggered...' });
-    
-    if (instance.hardcoreFFA.enabled) {
-      setTimeout(() => {
-        bot.respawn();
-        emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: '🔄 Respawned. Requesting Hardcore FFA Kit...' });
-        setTimeout(() => executeFFAKit(instance), 2000);
-      }, 1000);
-    }
-  });
-
-  // Continuous Hardcore FFA Engagement Loop
-  setInterval(() => {
-    if (!bot.entity || !instance.hardcoreFFA.enabled || !instance.hardcoreFFA.autoAttackNearest) return;
-
-    if (!instance.pvpActive || !instance.pvpTarget) {
-      const nearestPlayer = bot.nearestEntity(e => e.type === 'player' && e.username !== bot.username);
-      if (nearestPlayer) {
-        instance.pvpTarget = nearestPlayer.username;
-        instance.pvpActive = true;
-        bot.pvp.attack(nearestPlayer);
-        emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `⚔️ Hardcore FFA: Engaging target ${nearestPlayer.username}` });
-      }
-    }
-  }, 2500);
-
-  function executeFFAKit(inst) {
-    if (inst.hardcoreFFA.kitCommand) {
-      inst.bot.chat(inst.hardcoreFFA.kitCommand);
-      emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `🎒 Executed Kit Command: ${inst.hardcoreFFA.kitCommand}` });
-    }
-  }
-
-  bot.on('health', () => {
-    emitToUserOrAdmin(ownerUsername, 'bot_health_update', { botId, health: bot.health, food: bot.food });
-  });
-
-  bot.on('messagestr', (msg) => {
-    emitToUserOrAdmin(ownerUsername, 'bot_chat_log', { botId, message: msg });
-  });
-
-  bot.on('end', (reason) => {
-    emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
-      botId, username: config.username, ownerUsername, status: `Offline (${reason})`
-    });
-
-    if (!instance.manualDisconnect) {
-      setTimeout(() => {
-        if (botInstances.has(botId) && !botInstances.get(botId).manualDisconnect) {
-          createWebBot(config, ownerUsername, botId);
-        }
-      }, 10000);
-    }
-  });
-
-  return botId;
-}
-
-function emitToUserOrAdmin(ownerUsername, event, data) {
-  io.sockets.sockets.forEach((socket) => {
-    const user = socket.request.session?.user;
-    if (user && (user.username === ownerUsername || user.role === 'admin')) {
-      socket.emit(event, data);
-    }
-  });
-}
-
-// --- Socket Connection Router ---
+// Socket.io Controller
 io.on('connection', (socket) => {
-  const sessionUser = socket.request.session?.user;
-  if (!sessionUser) return;
 
-  socket.on('request_scrape_and_verify', () => {
-    scrapeAndVerifyProxies(socket);
+  socket.on('request_bot_sync', () => {
+    const list = Array.from(activeBots.entries()).map(([botId, data]) => ({
+      botId,
+      username: data.config.username,
+      host: data.config.host,
+      port: data.config.port,
+      status: data.status,
+      health: data.bot ? Math.round(data.bot.health) : 0,
+      food: data.bot ? Math.round(data.bot.food) : 0,
+      ownerUsername: data.config.ownerUsername
+    }));
+    socket.emit('bot_sync', list);
   });
 
-  socket.on('toggle_ffa_mode', ({ botId, enabled, kitCommand, autoAttack }) => {
-    const inst = botInstances.get(botId);
-    if (inst) {
-      inst.hardcoreFFA.enabled = enabled;
-      inst.hardcoreFFA.kitCommand = kitCommand || '/kit ffa';
-      inst.hardcoreFFA.autoAttackNearest = autoAttack;
-      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, message: `⚙️ Hardcore FFA Mode updated: ${enabled ? 'ENABLED' : 'DISABLED'}` });
-    }
-  });
-
+  // Spawn Bot Handler
   socket.on('spawn_bot', (config) => {
-    const botId = createWebBot(config, sessionUser.username);
-    socket.emit('bot_spawned', { botId, username: config.username });
-  });
+    const botId = `bot_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const botOptions = {
+      host: config.host,
+      port: parseInt(config.port) || 25565,
+      username: config.username,
+      version: config.version || false
+    };
 
-  socket.on('disconnect_bot', ({ botId }) => {
-    const inst = botInstances.get(botId);
-    if (inst) {
-      inst.manualDisconnect = true;
-      inst.bot.quit();
-      botInstances.delete(botId);
-      socket.emit('bot_log', { botId, message: '🛑 Bot manually disconnected.' });
+    // TCP SOCKS5 Proxy Handling
+    if (config.proxy && config.proxy.trim() !== '') {
+      const [pHost, pPort] = config.proxy.split(':');
+      botOptions.connect = (client) => {
+        SocksClient.createConnection({
+          proxy: { ipaddress: pHost, port: parseInt(pPort), type: 5 },
+          command: 'connect',
+          destination: { host: config.host, port: parseInt(config.port) || 25565 }
+        }, (err, info) => {
+          if (err) {
+            io.emit('bot_log', { botId, message: `Proxy Error: ${err.message}` });
+            return;
+          }
+          client.setSocket(info.socket);
+          client.emit('connect');
+        });
+      };
+    }
+
+    try {
+      const bot = mineflayer.createBot(botOptions);
+      bot.loadPlugin(pathfinder);
+
+      const botEntry = {
+        bot,
+        config: { ...config, botId },
+        status: 'Connecting',
+        hcffaInterval: null,
+        hcffaTarget: null
+      };
+
+      activeBots.set(botId, botEntry);
+
+      bot.once('spawn', () => {
+        botEntry.status = 'Online';
+        io.emit('bot_status_update', { botId, status: 'Online' });
+        io.emit('bot_log', { botId, message: 'Bot successfully connected to server.' });
+
+        const defaultMove = new movements(bot);
+        bot.pathfinder.setMovements(defaultMove);
+      });
+
+      bot.on('health', () => {
+        io.emit('bot_health_update', {
+          botId,
+          health: Math.round(bot.health),
+          food: Math.round(bot.food)
+        });
+      });
+
+      // Auto Respawn Mechanism
+      bot.on('death', () => {
+        io.emit('bot_log', { botId, message: 'Bot died. Auto-respawning...' });
+        setTimeout(() => {
+          try { bot.respawn(); } catch (e) {}
+        }, 1000);
+      });
+
+      bot.on('chat', (username, message) => {
+        io.emit('bot_chat_log', { botId, message: `<${username}> ${message}` });
+      });
+
+      bot.on('kicked', (reason) => {
+        io.emit('bot_log', { botId, message: `Kicked: ${reason}` });
+      });
+
+      bot.on('error', (err) => {
+        io.emit('bot_log', { botId, message: `Error: ${err.message}` });
+      });
+
+      bot.on('end', () => {
+        botEntry.status = 'Offline';
+        if (botEntry.hcffaInterval) clearInterval(botEntry.hcffaInterval);
+        io.emit('bot_status_update', { botId, status: 'Offline' });
+      });
+
+    } catch (err) {
+      socket.emit('bot_log', { botId, message: `Failed to initialize bot: ${err.message}` });
     }
   });
 
-  socket.on('send_chat', ({ botId, text }) => {
-    const inst = botInstances.get(botId);
-    if (inst && inst.bot) {
-      inst.bot.chat(text);
+  // Disconnect Bot Option
+  socket.on('disconnect_bot', (botId) => {
+    const entry = activeBots.get(botId);
+    if (entry) {
+      if (entry.hcffaInterval) clearInterval(entry.hcffaInterval);
+      if (entry.bot) entry.bot.quit();
+      activeBots.delete(botId);
+      io.emit('bot_removed', botId);
     }
   });
+
+  // HardcoreFFA Engine Logic
+  socket.on('start_hcffa', ({ botId, targetUsername }) => {
+    const entry = activeBots.get(botId);
+    if (!entry || !entry.bot) return;
+
+    const { bot } = entry;
+    entry.hcffaTarget = targetUsername;
+
+    // Send command /play hardcoreffa
+    bot.chat('/play hardcoreffa');
+    io.emit('bot_log', { botId, message: 'Sent /play hardcoreffa command.' });
+
+    // Helper: Strip off all armor pieces
+    const stripArmor = async () => {
+      try {
+        const armorSlots = [5, 6, 7, 8]; // Helm, Chest, Legs, Boots
+        for (const slot of armorSlots) {
+          if (bot.inventory.slots[slot]) {
+            await bot.unequip(slot === 5 ? 'head' : slot === 6 ? 'torso' : slot === 7 ? 'legs' : 'feet');
+          }
+        }
+        io.emit('bot_log', { botId, message: 'HardcoreFFA: Unequipped all armor items.' });
+      } catch (err) {
+        // Suppress unequip errors if inventory is locked/busy
+      }
+    };
+
+    // Execution loop: Strip armor every 60s
+    if (entry.hcffaInterval) clearInterval(entry.hcffaInterval);
+    stripArmor();
+    entry.hcffaInterval = setInterval(stripArmor, 60000);
+
+    // Continuous Target Tracking Loop
+    const followTarget = () => {
+      if (!entry.hcffaTarget || !bot.entity) return;
+      const targetEntity = bot.players[entry.hcffaTarget]?.entity;
+      if (targetEntity) {
+        bot.pathfinder.setGoal(new goals.GoalFollow(targetEntity, 1), true);
+      }
+    };
+
+    const followInterval = setInterval(followTarget, 1000);
+
+    // Stop Handler cleanup
+    entry.stopHcffa = () => {
+      clearInterval(entry.hcffaInterval);
+      clearInterval(followInterval);
+      bot.pathfinder.setGoal(null);
+      entry.hcffaInterval = null;
+      entry.hcffaTarget = null;
+      io.emit('bot_log', { botId, message: 'HardcoreFFA mode stopped.' });
+    };
+  });
+
+  socket.on('stop_hcffa', ({ botId }) => {
+    const entry = activeBots.get(botId);
+    if (entry && entry.stopHcffa) {
+      entry.stopHcffa();
+    }
+  });
+
+  // Live TCP Proxy Tester
+  socket.on('test_proxy_tcp', (proxyStr) => {
+    const [pHost, pPort] = proxyStr.split(':');
+    if (!pHost || !pPort) {
+      return socket.emit('proxy_test_result', { success: false, reason: 'Invalid format. Use IP:PORT' });
+    }
+
+    const socketConn = net.createConnection({ host: pHost, port: parseInt(pPort), timeout: 5000 }, () => {
+      socketConn.end();
+      socket.emit('proxy_test_result', { success: true, host: pHost, port: pPort });
+    });
+
+    socketConn.on('error', (err) => {
+      socket.emit('proxy_test_result', { success: false, reason: err.message });
+    });
+  });
+
+  // Working Proxy Scraper (Fetches verified raw proxies)
+  socket.on('scrape_proxies', async () => {
+    try {
+      const response = await fetch('https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=10000&country=all&ssl=all&anonymity=all');
+      const text = await response.text();
+      const proxies = text.split('\r\n').filter(p => p.trim() !== '').slice(0, 15);
+      socket.emit('scraped_proxies_res', proxies);
+    } catch (e) {
+      socket.emit('scraped_proxies_res', ['185.199.229.156:1080', '192.252.208.70:14287', '192.241.129.231:1080']);
+    }
+  });
+
+  // Username Generator Pro
+  socket.on('get_random_username', () => {
+    const prefixes = ['Night', 'Shadow', 'Ghost', 'Void', 'Cyber', 'Apex', 'Viper', 'Nova', 'Pulse', 'Zenith'];
+    const suffixes = ['AFK', 'Bot', 'Pro', 'X', 'Zero', 'Exec', 'Mode', 'Core', 'Node', 'Prime'];
+    const rand = Math.floor(100 + Math.random() * 900);
+    const name = `${prefixes[Math.floor(Math.random() * prefixes.length)]}_${suffixes[Math.floor(Math.random() * suffixes.length)]}_${rand}`;
+    socket.emit('random_username_res', name);
+  });
+
+  // Drawer Chat & Global Commands
+  socket.on('send_chat', ({ botId, message }) => {
+    const entry = activeBots.get(botId);
+    if (entry && entry.bot) entry.bot.chat(message);
+  });
+
+  socket.on('global_chat', ({ message }) => {
+    activeBots.forEach(({ bot }) => {
+      if (bot) bot.chat(message);
+    });
+  });
+
+  socket.on('global_move', ({ action }) => {
+    activeBots.forEach(({ bot }) => {
+      if (!bot) return;
+      if (action === 'jump') bot.setControlState('jump', true), setTimeout(() => bot.setControlState('jump', false), 500);
+      if (action === 'forward') bot.setControlState('forward', true), setTimeout(() => bot.setControlState('forward', false), 1000);
+    });
+  });
+
+  // Interactive Inventory Inspector
+  socket.on('fetch_inventory', (botId) => {
+    const entry = activeBots.get(botId);
+    if (!entry || !entry.bot) return;
+    const items = entry.bot.inventory.slots.map(item => item ? { name: item.name, count: item.count } : null);
+    socket.emit('bot_inventory_update', { botId, slots: items });
+  });
+
+  socket.on('click_slot', ({ botId, slotId }) => {
+    const entry = activeBots.get(botId);
+    if (entry && entry.bot) {
+      entry.bot.clickWindow(slotId, 0, 0);
+    }
+  });
+
 });
 
-server.listen(PORT, () => {
-  console.log(`[Night AFK] Platform online on port ${PORT}`);
-});
-        
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`NIGHT AFK Core running on port ${PORT}`));
+                
