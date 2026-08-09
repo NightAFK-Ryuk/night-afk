@@ -3,330 +3,363 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NightAFK Dashboard</title>
+  <title>Night AFK - Dashboard & Bot Control</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     :root {
-      --bg-primary: #0a0c10;
-      --bg-card: #141820;
-      --bg-input: #1c222d;
-      --accent-green: #00e676;
-      --accent-blue: #00b0ff;
-      --accent-orange: #ff9100;
-      --accent-red: #ff5252;
-      --text-main: #f0f4f8;
-      --text-muted: #8b98a5;
-      --border: #232d3d;
+      --bg: #0a0b10;
+      --card-bg: #121420;
+      --accent: #00f0ff;
+      --accent-glow: rgba(0, 240, 255, 0.3);
+      --red: #ff3366;
+      --green: #00ff88;
+      --text: #e0e6ed;
+      --text-dim: #7a889b;
+      --border: #1e2338;
     }
 
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background-color: var(--bg-primary);
-      color: var(--text-main);
-      margin: 0;
-      padding: 24px;
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background: var(--bg); color: var(--text); overflow-x: hidden; }
+
+    /* Auth Overlay */
+    #auth-overlay {
+      position: fixed; inset: 0; background: rgba(10, 11, 16, 0.95);
+      display: flex; align-items: center; justify-content: center; z-index: 999;
+    }
+    .auth-card {
+      background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px;
+      padding: 30px; width: 360px; box-shadow: 0 0 25px var(--accent-glow);
+    }
+    .auth-card h2 { color: var(--accent); margin-bottom: 20px; text-align: center; }
+    .tab-row { display: flex; gap: 10px; margin-bottom: 20px; }
+    .tab-btn { flex: 1; padding: 8px; background: transparent; border: 1px solid var(--border); color: var(--text); cursor: pointer; border-radius: 6px; }
+    .tab-btn.active { background: var(--accent); color: #000; font-weight: bold; }
+
+    /* Layout */
+    header { background: var(--card-bg); border-bottom: 1px solid var(--border); padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; }
+    .logo { color: var(--accent); font-size: 1.5rem; font-weight: bold; letter-spacing: 1px; }
+
+    .main-grid { display: grid; grid-template-columns: 320px 1fr 340px; gap: 20px; padding: 20px; height: calc(100vh - 70px); }
+    .panel { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 15px; display: flex; flex-direction: column; overflow: hidden; }
+
+    h3, h4 { color: var(--accent); margin-bottom: 12px; }
+    .subtitle { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 15px; }
+
+    /* Form Controls */
+    .input-group { margin-bottom: 12px; }
+    .input-group label { display: block; font-size: 0.8rem; color: var(--text-dim); margin-bottom: 4px; }
+    input[type="text"], input[type="password"], input[type="number"], select {
+      width: 100%; padding: 10px; background: #0a0b10; border: 1px solid var(--border); border-radius: 6px; color: var(--text); outline: none;
+    }
+    input:focus { border-color: var(--accent); }
+
+    .checkbox-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+
+    button.btn-glow {
+      background: var(--accent); color: #000; font-weight: bold; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer;
+      box-shadow: 0 0 10px var(--accent-glow); transition: 0.2s ease;
+    }
+    button.btn-glow:hover { opacity: 0.9; transform: translateY(-1px); }
+    button.block { width: 100%; }
+
+    /* Logs & Terminal */
+    .terminal-box {
+      background: #050608; border: 1px solid var(--border); border-radius: 6px; padding: 10px; flex: 1;
+      font-family: monospace; font-size: 0.85rem; overflow-y: auto; color: #a0aab0; display: flex; flex-direction: column; gap: 4px;
     }
 
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 24px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--border);
+    /* Bot List */
+    .bot-card {
+      background: #0a0b10; border: 1px solid var(--border); padding: 12px; border-radius: 6px; margin-bottom: 10px; cursor: pointer;
     }
+    .bot-card.selected { border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+    .status-online { color: var(--green); }
+    .status-offline { color: var(--red); }
 
-    .header h1 {
-      margin: 0;
-      font-size: 24px;
-      color: var(--accent-green);
-      letter-spacing: 0.5px;
-    }
-
-    .grid-container {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 20px;
-      margin-bottom: 24px;
-    }
-
-    .card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 20px;
-    }
-
-    .card h2 {
-      margin-top: 0;
-      margin-bottom: 16px;
-      font-size: 16px;
-      color: var(--accent-green);
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-    }
-
-    input, button {
-      box-sizing: border-box;
-      width: 100%;
-      padding: 10px 12px;
-      margin-bottom: 10px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      font-size: 14px;
-    }
-
-    input[type="text"], input[type="number"] {
-      background: var(--bg-input);
-      color: var(--text-main);
-    }
-
-    input[type="text"]:focus, input[type="number"]:focus {
-      outline: none;
-      border-color: var(--accent-green);
-    }
-
-    button {
-      background: var(--accent-green);
-      color: #000;
-      font-weight: 600;
-      border: none;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    button:hover { background: #00c853; }
-    button.btn-blue { background: var(--accent-blue); color: #000; }
-    button.btn-blue:hover { background: #0091ea; }
-    button.btn-red { background: var(--accent-red); color: #fff; }
-    button.btn-red:hover { background: #d50000; }
-
-    .checkbox-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 12px;
-      font-size: 14px;
-      color: var(--text-muted);
-    }
-
-    .info-box {
-      background: var(--bg-input);
-      border-radius: 6px;
-      padding: 12px;
-      margin-top: 10px;
-    }
-
-    .info-row {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 6px;
-      font-size: 13px;
-    }
-
-    .info-row:last-child { margin-bottom: 0; }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-
-    th, td {
-      padding: 12px;
-      text-align: left;
-      border-bottom: 1px solid var(--border);
-      font-size: 14px;
-    }
-
-    th {
-      background: var(--bg-input);
-      color: var(--text-muted);
-      font-weight: 600;
-      text-transform: uppercase;
-      font-size: 12px;
-    }
-
-    .badge {
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-
-    .badge-afk { background: rgba(0, 176, 255, 0.15); color: var(--accent-blue); border: 1px solid var(--accent-blue); }
-    .badge-hffa { background: rgba(255, 145, 0, 0.15); color: var(--accent-orange); border: 1px solid var(--accent-orange); }
-
-    .action-cell {
-      display: flex;
-      gap: 8px;
-    }
-
-    .action-cell button {
-      width: auto;
-      padding: 6px 12px;
-      margin-bottom: 0;
-      font-size: 12px;
-    }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
 
-  <div class="header">
-    <h1>NightAFK Dashboard v2.0</h1>
-  </div>
-
-  <div class="grid-container">
-    <!-- Connect Panel -->
-    <div class="card">
-      <h2>Spawn New Bot</h2>
-      <input type="text" id="botUsername" placeholder="Bot Username" />
-      <input type="text" id="serverHost" placeholder="Server IP" value="localhost" />
-      <input type="number" id="serverPort" placeholder="Server Port" value="25565" />
-      
-      <div class="checkbox-group">
-        <input type="checkbox" id="useProxy" checked />
-        <label for="useProxy">Assign Verified SOCKS5 Proxy</label>
+  <!-- Auth Overlay -->
+  <div id="auth-overlay">
+    <div class="auth-card">
+      <h2 id="auth-title">LOGIN</h2>
+      <div class="tab-row">
+        <button class="tab-btn active" onclick="switchAuthTab('login')">Login</button>
+        <button class="tab-btn" onclick="switchAuthTab('register')">Register</button>
       </div>
 
-      <button onclick="connectBot()">Spawn Bot (AFK Mode)</button>
-
-      <div class="info-box">
-        <div class="info-row">
-          <span>Raw Scraped:</span>
-          <strong id="rawProxyCount">0</strong>
-        </div>
-        <div class="info-row">
-          <span>Verified Working:</span>
-          <strong id="workingProxyCount" style="color: var(--accent-green);">0</strong>
-        </div>
-        <div class="info-row">
-          <span>Checker Status:</span>
-          <strong id="checkerStatus" style="color: var(--accent-blue);">Idle</strong>
-        </div>
-        <button class="btn-blue" style="margin-top: 8px;" onclick="recheckProxies()">Re-scrape & Check</button>
+      <div class="input-group hidden" id="email-group">
+        <label>Email</label>
+        <input type="text" id="auth-email" placeholder="user@nightafk.com">
       </div>
-    </div>
-
-    <!-- HardcoreFFA Global Target Panel -->
-    <div class="card">
-      <h2>HardcoreFFA Configuration</h2>
-      <p style="font-size: 13px; color: var(--text-muted); margin-top: 0;">Set global target username for bots assigned to HardcoreFFA mode:</p>
-      <input type="text" id="targetUser" placeholder="Enter target username..." />
-      <button onclick="updateTarget()">Set Follow Target</button>
-      
-      <div class="info-box" style="margin-top: 20px;">
-        <div class="info-row">
-          <span>Active Follow Target:</span>
-          <strong id="currentTargetDisplay" style="color: var(--accent-green);">None</strong>
-        </div>
+      <div class="input-group">
+        <label>Username</label>
+        <input type="text" id="auth-username" placeholder="Ryuk">
       </div>
+      <div class="input-group">
+        <label>Password</label>
+        <input type="password" id="auth-password" placeholder="••••••••">
+      </div>
+
+      <button class="btn-glow block" onclick="submitAuth()" id="auth-submit-btn">Login</button>
+      <div id="auth-error" style="color: var(--red); font-size: 0.8rem; margin-top: 10px; text-align: center;"></div>
     </div>
   </div>
 
-  <!-- Active Bots Table -->
-  <div class="card">
-    <h2>Connected Bots</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Bot Username</th>
-          <th>Proxy IP:Port</th>
-          <th>Health / Food</th>
-          <th>Uptime</th>
-          <th>Status</th>
-          <th>Chat Command</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="botTableBody">
-        <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No active bots connected.</td></tr>
-      </tbody>
-    </table>
+  <!-- Header -->
+  <header>
+    <div class="logo">NIGHT AFK</div>
+    <div>
+      <span id="user-display" style="margin-right: 15px; color: var(--text-dim);">Not logged in</span>
+      <button class="btn-glow" onclick="logout()" style="padding: 5px 12px; font-size: 0.8rem;">Logout</button>
+    </div>
+  </header>
+
+  <!-- Main Grid -->
+  <div class="main-grid">
+    
+    <!-- Left Column: Deploy & Proxy Scraper -->
+    <div class="panel">
+      <h3>🚀 Deploy WebBot</h3>
+      <div class="input-group">
+        <label>Bot Username</label>
+        <input type="text" id="bot-username" value="AFK_Bot_1">
+      </div>
+      <div class="input-group">
+        <label>Server IP</label>
+        <input type="text" id="bot-host" value="localhost">
+      </div>
+      <div class="input-group">
+        <label>Server Port</label>
+        <input type="number" id="bot-port" value="25565">
+      </div>
+      <div class="input-group">
+        <label>SOCKS5 Proxy (Host:Port)</label>
+        <input type="text" id="bot-proxy" placeholder="127.0.0.1:1080">
+      </div>
+      <button class="btn-glow block" onclick="deployBot()" style="margin-bottom: 20px;">Deploy Bot</button>
+
+      <h3>🔍 SOCKS5 TCP Scraper</h3>
+      <button class="btn-glow block" onclick="startProxyScraper()" style="margin-bottom: 10px;">Scrape & Verify Proxies</button>
+      <div class="terminal-box" id="proxy-log-box">
+        <div>Ready to scrape...</div>
+      </div>
+    </div>
+
+    <!-- Center Column: Bot Terminal & Active Instance Management -->
+    <div class="panel">
+      <h3>💻 Central Terminal & Chat</h3>
+      <div class="terminal-box" id="bot-terminal-box" style="margin-bottom: 10px;">
+        <div>[System] Select a bot from the right panel to view logs.</div>
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <input type="text" id="chat-input" placeholder="Type chat command or message..." style="flex: 1;">
+        <button class="btn-glow" onclick="sendChat()">Send</button>
+      </div>
+    </div>
+
+    <!-- Right Column: Active Bots & Hardcore FFA Panel -->
+    <div class="panel">
+      <h3>🤖 Active Instances</h3>
+      <div id="bot-list" style="margin-bottom: 20px; max-height: 200px; overflow-y: auto;">
+        <!-- Dynamic Bot Cards -->
+      </div>
+
+      <hr style="border-color: var(--border); margin-bottom: 15px;">
+
+      <h3>🔥 Hardcore FFA Engine</h3>
+      <p class="subtitle">Auto-respawns on death, executes kit commands, and attacks nearest players</p>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="ffa-enabled">
+        <label for="ffa-enabled">Enable Hardcore FFA Loop</label>
+      </div>
+
+      <div class="input-group">
+        <label>Auto-Kit Command</label>
+        <input type="text" id="ffa-kit-cmd" value="/kit ffa">
+      </div>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="ffa-auto-attack">
+        <label for="ffa-auto-attack">Auto-Engage Nearest Player</label>
+      </div>
+
+      <button class="btn-glow block" onclick="saveFFASettings()">Apply FFA Engine</button>
+      <button class="btn-glow block" onclick="disconnectSelectedBot()" style="background: var(--red); color: #fff; margin-top: 10px;">Disconnect Bot</button>
+    </div>
+
   </div>
 
   <script>
     const socket = io();
+    let currentAuthMode = 'login';
+    let selectedBotId = null;
+    let activeBotsMap = new Map();
 
-    function connectBot() {
-      const username = document.getElementById('botUsername').value.trim();
-      const host = document.getElementById('serverHost').value.trim();
-      const port = document.getElementById('serverPort').value.trim();
-      const useProxy = document.getElementById('useProxy').checked;
+    // Check Auth Status on Load
+    fetch('/api/me').then(r => r.json()).then(data => {
+      if (data.authenticated) {
+        document.getElementById('auth-overlay').classList.add('hidden');
+        document.getElementById('user-display').textContent = `User: ${data.user.username} (${data.user.role})`;
+      }
+    });
 
-      if (!username) return alert('Enter a valid bot username.');
+    function switchAuthTab(mode) {
+      currentAuthMode = mode;
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('auth-title').textContent = mode.toUpperCase();
+      document.getElementById('auth-submit-btn').textContent = mode.toUpperCase();
 
-      socket.emit('connect_bot', { username, host, port, useProxy });
-      document.getElementById('botUsername').value = '';
-    }
-
-    function updateTarget() {
-      const target = document.getElementById('targetUser').value.trim();
-      socket.emit('set_global_target', target);
-    }
-
-    function toggleHFFA(username, currentStatus) {
-      socket.emit('toggle_hffa', { username, enable: !currentStatus });
-    }
-
-    function sendBotChat(username) {
-      const msg = prompt(`Send chat command/message for ${username}:`);
-      if (msg) {
-        socket.emit('send_chat', { username, message: msg });
+      if (mode === 'register') {
+        document.getElementById('email-group').classList.remove('hidden');
+        event.target.classList.add('active');
+      } else {
+        document.getElementById('email-group').classList.add('hidden');
+        event.target.classList.add('active');
       }
     }
 
-    function disconnectBot(username) {
-      socket.emit('disconnect_bot', username);
+    function submitAuth() {
+      const username = document.getElementById('auth-username').value;
+      const password = document.getElementById('auth-password').value;
+      const email = document.getElementById('auth-email').value;
+      const errBox = document.getElementById('auth-error');
+
+      errBox.textContent = '';
+
+      const endpoint = currentAuthMode === 'login' ? '/api/login' : '/api/register';
+      const body = currentAuthMode === 'login' ? { username, password } : { username, email, password };
+
+      fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      }).then(r => r.json()).then(data => {
+        if (data.error) {
+          errBox.textContent = data.error;
+        } else {
+          document.getElementById('auth-overlay').classList.add('hidden');
+          document.getElementById('user-display').textContent = `User: ${data.user.username}`;
+          location.reload();
+        }
+      });
     }
 
-    function recheckProxies() {
-      socket.emit('force_proxy_check');
+    function logout() {
+      fetch('/api/logout', { method: 'POST' }).then(() => location.reload());
     }
 
-    socket.on('system_state_update', (data) => {
-      document.getElementById('rawProxyCount').innerText = data.rawProxyCount;
-      document.getElementById('workingProxyCount').innerText = data.workingProxyCount;
-      document.getElementById('checkerStatus').innerText = data.isCheckingProxies ? 'Verifying...' : 'Idle / Ready';
-      document.getElementById('currentTargetDisplay').innerText = data.currentTarget || 'None';
-      renderTable(data.bots);
+    // Deploy Bot
+    function deployBot() {
+      const config = {
+        username: document.getElementById('bot-username').value,
+        host: document.getElementById('bot-host').value,
+        port: document.getElementById('bot-port').value,
+        proxy: document.getElementById('bot-proxy').value
+      };
+
+      socket.emit('spawn_bot', config);
+    }
+
+    // Proxy Scraper Trigger
+    function startProxyScraper() {
+      const logBox = document.getElementById('proxy-log-box');
+      logBox.innerHTML = '';
+      socket.emit('request_scrape_and_verify');
+    }
+
+    socket.on('proxy_log', (msg) => {
+      const logBox = document.getElementById('proxy-log-box');
+      const div = document.createElement('div');
+      div.textContent = msg;
+      logBox.appendChild(div);
+      logBox.scrollTop = logBox.scrollHeight;
     });
 
-    socket.on('uptime_tick', (bots) => {
-      renderTable(bots);
-    });
-
-    function renderTable(bots) {
-      const tbody = document.getElementById('botTableBody');
-      if (!bots || bots.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No active bots connected.</td></tr>';
-        return;
+    socket.on('proxy_verified_single', (proxyStr) => {
+      const proxyInput = document.getElementById('bot-proxy');
+      if (!proxyInput.value) {
+        proxyInput.value = proxyStr;
       }
+    });
 
-      tbody.innerHTML = bots.map(bot => `
-        <tr>
-          <td><strong>${bot.username}</strong></td>
-          <td>${bot.proxyIp}:${bot.proxyPort}</td>
-          <td>❤️ ${bot.health}/20 | 🍗 ${bot.food}/20</td>
-          <td>${bot.uptime}</td>
-          <td>
-            <span class="badge ${bot.isHFFA ? 'badge-hffa' : 'badge-afk'}">
-              ${bot.isHFFA ? 'HardcoreFFA' : 'Pure AFK'}
-            </span>
-          </td>
-          <td>
-            <button class="btn-blue" style="width: auto; padding: 4px 8px; font-size: 12px; margin: 0;" onclick="sendBotChat('${bot.username}')">Send Chat</button>
-          </td>
-          <td>
-            <div class="action-cell">
-              <button onclick="toggleHFFA('${bot.username}', ${bot.isHFFA})">
-                ${bot.isHFFA ? 'Return to AFK' : 'Enable HFFA'}
-              </button>
-              <button class="btn-red" onclick="disconnectBot('${bot.username}')">Kick</button>
-            </div>
-          </td>
-        </tr>
-      `).join('');
+    // Active Bot Status & List Updates
+    socket.on('bot_status_update', (data) => {
+      activeBotsMap.set(data.botId, data);
+      renderBotList();
+    });
+
+    function renderBotList() {
+      const container = document.getElementById('bot-list');
+      container.innerHTML = '';
+
+      activeBotsMap.forEach((bot, id) => {
+        const div = document.createElement('div');
+        div.className = `bot-card ${selectedBotId === id ? 'selected' : ''}`;
+        div.onclick = () => selectBot(id);
+
+        const isOnline = bot.status === 'Online';
+        div.innerHTML = `
+          <div><strong>${bot.username}</strong></div>
+          <div style="font-size: 0.8rem;" class="${isOnline ? 'status-online' : 'status-offline'}">
+            ● ${bot.status}
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function selectBot(botId) {
+      selectedBotId = botId;
+      renderBotList();
+    }
+
+    // Terminal Logging
+    socket.on('bot_log', (data) => {
+      if (data.botId === selectedBotId) {
+        appendTerminalLog(`[SYSTEM] ${data.message}`);
+      }
+    });
+
+    socket.on('bot_chat_log', (data) => {
+      if (data.botId === selectedBotId) {
+        appendTerminalLog(`[CHAT] ${data.message}`);
+      }
+    });
+
+    function appendTerminalLog(msg) {
+      const box = document.getElementById('bot-terminal-box');
+      const div = document.createElement('div');
+      div.textContent = msg;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function sendChat() {
+      const input = document.getElementById('chat-input');
+      if (!selectedBotId || !input.value) return;
+
+      socket.emit('send_chat', { botId: selectedBotId, text: input.value });
+      input.value = '';
+    }
+
+    // Hardcore FFA Controls
+    function saveFFASettings() {
+      if (!selectedBotId) return alert('Select an active bot first.');
+
+      const enabled = document.getElementById('ffa-enabled').checked;
+      const kitCommand = document.getElementById('ffa-kit-cmd').value;
+      const autoAttack = document.getElementById('ffa-auto-attack').checked;
+
+      socket.emit('toggle_ffa_mode', { botId: selectedBotId, enabled, kitCommand, autoAttack });
+    }
+
+    function disconnectSelectedBot() {
+      if (!selectedBotId) return;
+      socket.emit('disconnect_bot', { botId: selectedBotId });
     }
   </script>
 </body>
