@@ -128,9 +128,8 @@ io.on('connection', (socket) => {
       keepAlive: true
     };
 
-    // Advanced SOCKS5 Proxy Binding with Residential Support
     if (config.proxy && config.proxy.trim() !== '') {
-      const parts = config.proxy.split(':');
+      const parts = config.proxy.trim().split(':');
       const pHost = parts[0];
       const pPort = parseInt(parts[1]);
       const pUser = parts[2];
@@ -151,14 +150,17 @@ io.on('connection', (socket) => {
         SocksClient.createConnection({
           proxy: proxyConfig,
           command: 'connect',
-          destination: { host: config.host, port: parseInt(config.port) || 25565 }
+          destination: { host: config.host, port: parseInt(config.port) || 25565 },
+          timeout: 15000
         }, (err, info) => {
           if (err) {
-            io.emit('bot_log', { botId, message: `Proxy Handshake Error: ${err.message}` });
+            io.emit('bot_log', { botId, message: `SOCKS5 Proxy Failed: ${err.message}` });
             client.emit('error', err);
             return;
           }
-          client.setSocket(info.socket);
+          
+          const rawSocket = info.socket;
+          client.setSocket(rawSocket);
           client.emit('connect');
         });
       };
@@ -186,7 +188,7 @@ io.on('connection', (socket) => {
         botEntry.status = 'Online';
         botEntry.startTime = Date.now();
         io.emit('bot_status_update', { botId, status: 'Online', uptime: 0 });
-        io.emit('bot_log', { botId, message: 'Successfully connected and spawned on the server!' });
+        io.emit('bot_log', { botId, message: 'Successfully authenticated, connected, and spawned!' });
 
         const defaultMove = new movements(bot);
         bot.pathfinder.setMovements(defaultMove);
@@ -239,11 +241,11 @@ io.on('connection', (socket) => {
         if (botEntry.armorCheckInterval) clearInterval(botEntry.armorCheckInterval);
         if (botEntry.followInterval) clearInterval(botEntry.followInterval);
         io.emit('bot_status_update', { botId, status: 'Offline', uptime: 0 });
-        io.emit('bot_log', { botId, message: `Connection ended. Reason: ${reason || 'Unknown'}` });
+        io.emit('bot_log', { botId, message: `Disconnected. Reason: ${reason || 'Unknown'}` });
       });
 
     } catch (err) {
-      socket.emit('bot_log', { botId, message: `Failed to create bot instance: ${err.message}` });
+      socket.emit('bot_log', { botId, message: `Fatal Setup Error: ${err.message}` });
     }
   });
 
@@ -331,7 +333,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('test_proxy_tcp', (proxyStr) => {
-    const parts = proxyStr.split(':');
+    const parts = proxyStr.trim().split(':');
     const pHost = parts[0];
     const pPort = parseInt(parts[1]);
     if (!pHost || !pPort) return socket.emit('proxy_test_result', { success: false, reason: 'Invalid format. Use IP:PORT or IP:PORT:USER:PASS' });
@@ -399,4 +401,4 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`NIGHT AFK Core running on port ${PORT}`));
-      
+        
