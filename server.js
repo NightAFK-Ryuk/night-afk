@@ -19,7 +19,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
-// Railway Persistent Volume Path mapping for sessions
 const sessionStorePath = process.env.RAILWAY_VOLUME_MOUNT_PATH 
   ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'sessions') 
   : './sessions';
@@ -44,11 +43,9 @@ io.use((socket, next) => {
   sessionMiddleware(socket.request, {}, next);
 });
 
-// User Storage & Bot Registry
 const users = new Map();
 const botInstances = new Map();
 
-// Default Admin User
 users.set('Ryuk', {
   username: 'Ryuk',
   email: 'ryuk@nightafk.com',
@@ -58,7 +55,6 @@ users.set('Ryuk', {
   createdAt: new Date().toISOString()
 });
 
-// TCP SOCKS5 Real Connection Verification
 function testSocks5Proxy(proxyStr) {
   return new Promise((resolve) => {
     if (!proxyStr) return resolve({ success: false, reason: 'No proxy provided.' });
@@ -84,7 +80,6 @@ function testSocks5Proxy(proxyStr) {
   });
 }
 
-// Scrape Public SOCKS5 Proxy List
 function scrapeSocks5Proxies() {
   return new Promise((resolve) => {
     const url = 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt';
@@ -108,7 +103,6 @@ function generateRandomUsername() {
   return `${p}_${s}${num}`.slice(0, 16);
 }
 
-// Authentication Routes
 app.post('/api/register', (req, res) => {
   const { username, email, password } = req.body;
   if (!username || !email || !password) return res.status(400).json({ error: 'All fields required.' });
@@ -141,7 +135,6 @@ app.post('/api/logout', (req, res) => {
   res.json({ success: true });
 });
 
-// Admin Panel APIs
 app.get('/api/admin/users', (req, res) => {
   if (!req.session.user || req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
   const list = Array.from(users.values()).map(u => ({
@@ -167,7 +160,6 @@ app.post('/api/admin/user-action', (req, res) => {
   res.json({ success: true });
 });
 
-// Helper: Safely strip all armor pieces using inventory window throws
 async function removeAllArmor(bot) {
   const armorSlots = [5, 6, 7, 8];
   for (const slot of armorSlots) {
@@ -181,7 +173,6 @@ async function removeAllArmor(bot) {
   }
 }
 
-// Mineflayer Instance Manager
 function createWebBot(config, ownerUsername, existingBotId = null) {
   const botId = existingBotId || `bot_${config.username}_${Date.now()}`;
 
@@ -225,7 +216,19 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
 
   botInstances.set(botId, instance);
 
-  // Core Spawn Event: Runs on every single join and auto-reconnection
+  // Direct injection right on packet connection / login phase to ensure authentication hits instantly
+  bot.once('login', () => {
+    const rawPass = config.password ? String(config.password).trim() : '';
+    if (rawPass.length > 0) {
+      setTimeout(() => {
+        bot.chat(`/register ${rawPass} ${rawPass}`);
+      }, 500);
+      setTimeout(() => {
+        bot.chat(`/login ${rawPass}`);
+      }, 1500);
+    }
+  });
+
   bot.on('spawn', async () => {
     emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
       botId,
@@ -241,21 +244,17 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
     const defaultMove = new Movements(bot);
     bot.pathfinder.setMovements(defaultMove);
 
-    // 1. Guaranteed Authentication / Registration Sequence
+    // Secondary redundancy auth check on spawn
     const rawPass = config.password ? String(config.password).trim() : '';
     if (rawPass.length > 0) {
       setTimeout(() => {
-        bot.chat(`/register ${rawPass} ${rawPass}`);
-      }, 1500);
-
-      setTimeout(() => {
         bot.chat(`/login ${rawPass}`);
-      }, 3500);
+      }, 1000);
     }
 
-    // 2. Hardcore FFA (HFFA) Automation Trigger & Loop
-    const isHffaEnabled = config.hffa === true || config.hffa === 'true' || config.gameMode === 'hffa';
-    if (isHffaEnabled) {
+    // Hardcore FFA sequence execution
+    const hffaEnabled = config.hffa === true || config.hffa === 'true' || config.hffa === 'on' || config.gameMode === 'hffa';
+    if (hffaEnabled) {
       setTimeout(async () => {
         bot.chat('/play hardcoreffa');
         await removeAllArmor(bot);
@@ -264,18 +263,17 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
         instance.hffaInterval = setInterval(async () => {
           if (!bot.entity) return;
 
-          // Strip armor continuously in case items re-equip automatically
           await removeAllArmor(bot);
 
-          // Follow designated target player if provided
-          if (config.targetPlayer && config.targetPlayer.trim() !== '') {
-            const target = bot.players[config.targetPlayer.trim()]?.entity;
-            if (target) {
-              bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true);
+          const targetName = config.targetPlayer ? config.targetPlayer.trim() : '';
+          if (targetName !== '') {
+            const targetEntity = bot.players[targetName]?.entity;
+            if (targetEntity) {
+              bot.pathfinder.setGoal(new goals.GoalFollow(targetEntity, 1), true);
             }
           }
-        }, 2000);
-      }, 5000);
+        }, 1500);
+      }, 3000);
     }
   });
 
@@ -327,7 +325,6 @@ function emitToUserOrAdmin(ownerUsername, event, data) {
   });
 }
 
-// Socket Router
 io.on('connection', (socket) => {
   const sessionUser = socket.request.session?.user;
   if (!sessionUser) return;
