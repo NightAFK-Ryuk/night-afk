@@ -1,12 +1,13 @@
 {
   "name": "night-afk-dashboard",
-  "version": "2.0.0",
-  "description": "Minimalist High-Performance Minecraft AFK Dashboard",
+  "version": "3.0.0",
+  "description": "High Performance Minecraft AFK Bot Suite",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
+    "axios": "^1.7.2",
     "express": "^4.19.2",
     "express-session": "^1.18.0",
     "mineflayer": "^4.20.1",
