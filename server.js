@@ -5,7 +5,7 @@ const session = require('express-session');
 const FileStore = require('session-file-store')(session);
 const mineflayer = require('mineflayer');
 const { SocksClient } = require('socks');
-const { pathfinder } = require('mineflayer-pathfinder');
+const { pathfinder, Movements } = require('mineflayer-pathfinder');
 const https = require('https');
 const path = require('path');
 
@@ -19,7 +19,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
-// Railway Persistent Volume Path mapping for sessions so logouts never happen
+// Railway Persistent Volume Path mapping for sessions
 const sessionStorePath = process.env.RAILWAY_VOLUME_MOUNT_PATH 
   ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'sessions') 
   : './sessions';
@@ -35,7 +35,7 @@ const sessionMiddleware = session({
   secret: 'night_afk_glowing_key_2026',
   resave: true,
   saveUninitialized: true,
-  cookie: { maxAge: 365 * 24 * 60 * 60 * 1000 } // 1 Year session persistence
+  cookie: { maxAge: 365 * 24 * 60 * 60 * 1000 }
 });
 
 app.use(sessionMiddleware);
@@ -93,7 +93,7 @@ function scrapeSocks5Proxies() {
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
         const lines = data.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-        resolve(lines.slice(0, 50)); // Return top 50 proxies
+        resolve(lines.slice(0, 50));
       });
     }).on('error', () => resolve([]));
   });
@@ -167,7 +167,7 @@ app.post('/api/admin/user-action', (req, res) => {
   res.json({ success: true });
 });
 
-// Mineflayer Instance Manager
+// Mineflayer Instance Manager (Stationary AFK, Auto Register/Login & Reconnect)
 function createWebBot(config, ownerUsername, existingBotId = null) {
   const botId = existingBotId || `bot_${config.username}_${Date.now()}`;
 
@@ -222,11 +222,17 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
       food: bot.food
     });
 
+    const defaultMove = new Movements(bot);
+    bot.pathfinder.setMovements(defaultMove);
+
+    // Guaranteed Authentication Sequence on Join & Reconnect
     if (config.password) {
       setTimeout(() => {
         bot.chat(`/register ${config.password} ${config.password}`);
-        setTimeout(() => bot.chat(`/login ${config.password}`), 1000);
-      }, 2000);
+        setTimeout(() => {
+          bot.chat(`/login ${config.password}`);
+        }, 1500);
+      }, 2500);
     }
   });
 
@@ -249,12 +255,12 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
     });
 
     if (!instance.manualDisconnect) {
-      emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: 'Disconnected. Auto-reconnecting in 15s...' });
+      emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: 'Disconnected. Auto-reconnecting in 8s...' });
       instance.reconnectTimer = setTimeout(() => {
         if (botInstances.has(botId) && !botInstances.get(botId).manualDisconnect) {
           createWebBot(config, ownerUsername, botId);
         }
-      }, 15000);
+      }, 8000);
     } else {
       botInstances.delete(botId);
     }
@@ -393,4 +399,4 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`[Night AFK] Live on port ${PORT}`);
 });
-                                    
+            
