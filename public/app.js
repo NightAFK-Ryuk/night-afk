@@ -3,7 +3,6 @@ let currentUser = null;
 let activeBots = new Map();
 let selectedBotId = null;
 
-// Screen Router
 function showScreen(screenId) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const target = document.getElementById(screenId);
@@ -12,7 +11,6 @@ function showScreen(screenId) {
   if (screenId === 'admin-screen') loadAdminUsers();
 }
 
-// Scroll Reveal Observer
 window.addEventListener('scroll', () => {
   const reveals = document.querySelectorAll('.reveal');
   reveals.forEach(el => {
@@ -24,7 +22,6 @@ window.addEventListener('scroll', () => {
   });
 });
 
-// Authentication Sync
 async function checkAuth() {
   try {
     const res = await fetch('/api/me');
@@ -104,7 +101,6 @@ async function logout() {
   showScreen('hero-screen');
 }
 
-// Bot Synchronization & Roster
 socket.on('bot_sync', (list) => {
   activeBots.clear();
   list.forEach(bot => activeBots.set(bot.botId, bot));
@@ -125,6 +121,23 @@ socket.on('bot_health_update', ({ botId, health, food }) => {
     renderBotGrid();
   }
 });
+
+socket.on('bot_uptime_update', ({ botId, uptime }) => {
+  const bot = activeBots.get(botId);
+  if (bot) {
+    bot.uptime = uptime;
+    const uptimeEl = document.getElementById(`uptime-${botId}`);
+    if (uptimeEl) uptimeEl.textContent = formatUptime(uptime);
+  }
+});
+
+function formatUptime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h}h ${m % 60}m ${s}s`;
+  return `${m}m ${s}s`;
+}
 
 socket.on('bot_log', ({ botId, message }) => {
   if (selectedBotId === botId) appendLog(message);
@@ -160,12 +173,14 @@ function renderBotGrid() {
         <span>HP: ${bot.health || 0}/20</span>
         <span>Food: ${bot.food || 0}/20</span>
       </div>
+      <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">
+        Uptime: <span id="uptime-${bot.botId}">${formatUptime(bot.uptime || 0)}</span>
+      </div>
     `;
     grid.appendChild(card);
   });
 }
 
-// Drawer Inspection Panel
 function openBotDrawer(botId) {
   selectedBotId = botId;
   const bot = activeBots.get(botId);
@@ -208,7 +223,6 @@ function sendDrawerChat() {
   }
 }
 
-// HardcoreFFA Section Handlers
 function startHcffa() {
   const target = document.getElementById('hcffa-target').value;
   if (selectedBotId && target) {
@@ -249,7 +263,6 @@ socket.on('bot_inventory_update', ({ botId, slots }) => {
   });
 });
 
-// Utilities Modal (Proxy & Generator Pro)
 function openToolsModal() { document.getElementById('tools-modal').classList.add('open'); }
 function closeToolsModal() { document.getElementById('tools-modal').classList.remove('open'); }
 
@@ -276,7 +289,6 @@ socket.on('scraped_proxies_res', (list) => {
 function generateUsername() { socket.emit('get_random_username'); }
 socket.on('random_username_res', (name) => { document.getElementById('bot-user').value = name; });
 
-// Global Hub Commands
 function sendGlobalChat() {
   const input = document.getElementById('global-chat-input');
   if (input.value) {
@@ -296,7 +308,8 @@ function handleSpawnBot(e) {
     username: document.getElementById('bot-user').value,
     host: document.getElementById('bot-host').value,
     port: document.getElementById('bot-port').value,
-    version: document.getElementById('bot-version').value,
+    version: document.getElementById('bot-version').value || '1.8.9',
+    botPassword: document.getElementById('bot-password').value,
     proxy: document.getElementById('bot-proxy').value
   };
 
@@ -304,7 +317,6 @@ function handleSpawnBot(e) {
   closeSpawnModal();
 }
 
-// Admin Portal APIs
 async function loadAdminUsers() {
   const res = await fetch('/api/admin/users');
   if (!res.ok) return;
@@ -339,5 +351,4 @@ async function adminAction(targetUser, action) {
   loadAdminUsers();
 }
 
-// Init
 checkAuth();
