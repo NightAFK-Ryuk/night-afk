@@ -160,19 +160,6 @@ app.post('/api/admin/user-action', (req, res) => {
   res.json({ success: true });
 });
 
-async function removeAllArmor(bot) {
-  const armorSlots = [5, 6, 7, 8];
-  for (const slot of armorSlots) {
-    const item = bot.inventory.slots[slot];
-    if (item) {
-      try {
-        await bot.clickWindow(slot, 0, 0);
-        await bot.clickWindow(-999, 0, 0);
-      } catch (err) {}
-    }
-  }
-}
-
 function createWebBot(config, ownerUsername, existingBotId = null) {
   const botId = existingBotId || `bot_${config.username}_${Date.now()}`;
 
@@ -220,7 +207,7 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
     emitToUserOrAdmin(ownerUsername, 'bot_chat_log', { botId, message: msg });
   });
 
-  bot.on('spawn', async () => {
+  bot.on('spawn', () => {
     emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
       botId,
       username: config.username,
@@ -235,27 +222,51 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
     const defaultMove = new Movements(bot);
     bot.pathfinder.setMovements(defaultMove);
 
-    // Exactly a 3-second delay after spawning, then sends both commands back-to-back instantly
+    // ==========================================
+    // 1. FORCED AUTHENTICATION IMMEDIATELY
+    // ==========================================
     const rawPass = config.password ? String(config.password).trim() : '';
     if (rawPass.length > 0) {
+      console.log(`[AUTH] Force sending auth commands for ${config.username}`);
+      
+      // Fire strictly 500ms and 1000ms after spawn. No waiting for chat messages.
       setTimeout(() => {
-        console.log(`[AUTH] Sending commands for ${config.username}`);
         bot.chat(`/register ${rawPass} ${rawPass}`);
+      }, 500);
+      
+      setTimeout(() => {
         bot.chat(`/login ${rawPass}`);
-      }, 3000);
+      }, 1000);
     }
 
+    // ==========================================
+    // 2. HARDCOREFFA AUTOMATION
+    // ==========================================
     const hffaEnabled = config.hffa === true || config.hffa === 'true' || config.hffa === 'on' || config.gameMode === 'hffa' || config.gameMode === 'hardcoreffa';
     if (hffaEnabled) {
-      setTimeout(async () => {
+      // Wait 4 seconds for the login to succeed, then enter HardcoreFFA
+      setTimeout(() => {
         bot.chat('/play hardcoreffa');
-        await removeAllArmor(bot);
-
+        
         if (instance.hffaInterval) clearInterval(instance.hffaInterval);
+        
         instance.hffaInterval = setInterval(async () => {
           if (!bot.entity) return;
-          await removeAllArmor(bot);
+          
+          // Strip Armor
+          try {
+            const armorSlots = [5, 6, 7, 8];
+            for (const slot of armorSlots) {
+              if (bot.inventory.slots[slot]) {
+                await bot.clickWindow(slot, 0, 0); // Pick up armor
+                await bot.clickWindow(-999, 0, 0); // Drop it outside inventory
+              }
+            }
+          } catch (err) {
+            // Ignore normal click errors while moving/syncing
+          }
 
+          // Follow Target Player
           const targetName = config.targetPlayer ? config.targetPlayer.trim() : '';
           if (targetName !== '') {
             const targetEntity = bot.players[targetName]?.entity;
@@ -263,8 +274,8 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
               bot.pathfinder.setGoal(new goals.GoalFollow(targetEntity, 1), true);
             }
           }
-        }, 1500);
-      }, 5000);
+        }, 1500); // Loop every 1.5 seconds
+      }, 4000);
     }
   });
 
@@ -278,6 +289,7 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
   });
 
   bot.on('end', (reason) => {
+    // Clean up HFFA loop when bot disconnects
     if (instance.hffaInterval) clearInterval(instance.hffaInterval);
 
     emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
@@ -286,6 +298,8 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
 
     if (!instance.manualDisconnect) {
       emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: 'Disconnected. Auto-reconnecting in 8s...' });
+      
+      // RECONNECT LOGIC: Calls createWebBot again, which resets everything and guarantees auth sends again.
       instance.reconnectTimer = setTimeout(() => {
         if (botInstances.has(botId) && !botInstances.get(botId).manualDisconnect) {
           createWebBot(config, ownerUsername, botId);
@@ -429,4 +443,4 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`[Night AFK] Live on port ${PORT}`);
 });
-      
+         
