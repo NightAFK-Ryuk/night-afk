@@ -24,7 +24,7 @@ app.use(session({
 }));
 
 const users = new Map();
-const activeBots = new Map(); // botId -> { bot, config, hcffaInterval, hcffaTarget, startTime }
+const activeBots = new Map();
 
 users.set('Ryuk', { username: 'Ryuk', password: 'password123', email: 'ryuk@nightafk.com', role: 'admin', status: 'active', createdAt: new Date() });
 
@@ -79,7 +79,8 @@ io.on('connection', (socket) => {
       host: config.host,
       port: parseInt(config.port) || 25565,
       username: config.username,
-      version: config.version || '1.8.9'
+      version: config.version || '1.8.9',
+      skipValidation: true
     };
 
     if (config.proxy && config.proxy.trim() !== '') {
@@ -91,7 +92,8 @@ io.on('connection', (socket) => {
           destination: { host: config.host, port: parseInt(config.port) || 25565 }
         }, (err, info) => {
           if (err) {
-            io.emit('bot_log', { botId, message: `Proxy Error: ${err.message}` });
+            io.emit('bot_log', { botId, message: `SOCKS5 Proxy Error: ${err.message}` });
+            client.emit('error', err);
             return;
           }
           client.setSocket(info.socket);
@@ -122,7 +124,7 @@ io.on('connection', (socket) => {
         botEntry.status = 'Online';
         botEntry.startTime = Date.now();
         io.emit('bot_status_update', { botId, status: 'Online', uptime: 0 });
-        io.emit('bot_log', { botId, message: 'Bot successfully connected to server.' });
+        io.emit('bot_log', { botId, message: 'Bot successfully joined and spawned on server.' });
 
         const defaultMove = new movements(bot);
         bot.pathfinder.setMovements(defaultMove);
@@ -161,11 +163,11 @@ io.on('connection', (socket) => {
       });
 
       bot.on('kicked', (reason) => {
-        io.emit('bot_log', { botId, message: `Kicked: ${reason}` });
+        io.emit('bot_log', { botId, message: `Kicked from server: ${reason}` });
       });
 
       bot.on('error', (err) => {
-        io.emit('bot_log', { botId, message: `Error: ${err.message}` });
+        io.emit('bot_log', { botId, message: `Bot Error: ${err.message}` });
       });
 
       bot.on('end', () => {
@@ -175,10 +177,11 @@ io.on('connection', (socket) => {
         if (botEntry.armorCheckInterval) clearInterval(botEntry.armorCheckInterval);
         if (botEntry.followInterval) clearInterval(botEntry.followInterval);
         io.emit('bot_status_update', { botId, status: 'Offline', uptime: 0 });
+        io.emit('bot_log', { botId, message: 'Connection lost / ended.' });
       });
 
     } catch (err) {
-      socket.emit('bot_log', { botId, message: `Failed to initialize bot: ${err.message}` });
+      socket.emit('bot_log', { botId, message: `Failed to initialize bot instance: ${err.message}` });
     }
   });
 
@@ -332,4 +335,4 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`NIGHT AFK Core running on port ${PORT}`));
-        
+          
