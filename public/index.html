@@ -11,7 +11,6 @@
 </head>
 <body>
 
-  <!-- Navigation Bar -->
   <nav class="navbar">
     <div class="logo" onclick="showScreen('hero-screen')">NIGHT <span>AFK</span></div>
     <div class="nav-links">
@@ -23,7 +22,6 @@
     </div>
   </nav>
 
-  <!-- Hero Screen -->
   <div id="hero-screen" class="screen active">
     <div class="hero-container">
       <div class="glow-pill">• Infinite AFK Hosting Online</div>
@@ -50,7 +48,7 @@
         <div class="feature-card reveal">
           <div class="feature-icon">⚔️</div>
           <h3>HardcoreFFA Suite</h3>
-          <p>Dedicated FFA automation engine. Executes /play hardcoreffa, strips off armor every 60 seconds, and tracks target players continuously, even post-respawn.</p>
+          <p>Dedicated FFA automation engine. Executes /play hardcoreffa, strips off armor automatically upon detection, and tracks target players continuously, without PvP.</p>
         </div>
         <div class="feature-card reveal">
           <div class="feature-icon">💬</div>
@@ -70,7 +68,7 @@
         <div class="feature-card reveal">
           <div class="feature-icon">⚡</div>
           <h3>Username Generator</h3>
-          <p>Instant online username generation algorithm. Generate unique, valid Minecraft usernames with a single click during instance creation.</p>
+          <p>Instant online username generation algorithm. Generate unique, valid 5-to-12 character Minecraft usernames with a single click during instance creation.</p>
         </div>
         <div class="feature-card reveal">
           <div class="feature-icon">📡</div>
@@ -86,7 +84,6 @@
     </div>
   </div>
 
-  <!-- Authentication Screens -->
   <div id="login-screen" class="screen">
     <div class="auth-card">
       <h2 style="margin-bottom: 20px;">Sign In</h2>
@@ -112,7 +109,6 @@
     </div>
   </div>
 
-  <!-- Main Dashboard -->
   <div id="dashboard-screen" class="screen">
     <div class="dash-container">
       <div class="dash-header">
@@ -123,7 +119,6 @@
         </div>
       </div>
 
-      <!-- Global Chat & Control Bar -->
       <div class="global-bar">
         <input type="text" id="global-chat-input" placeholder="Broadcast message across all active instances...">
         <button class="btn-glow" onclick="sendGlobalChat()">Broadcast</button>
@@ -131,12 +126,10 @@
         <button class="btn-outline" onclick="triggerGlobalMove('forward')">Global Forward</button>
       </div>
 
-      <!-- Bot Card Grid -->
       <div id="bot-grid" class="bot-grid"></div>
     </div>
   </div>
 
-  <!-- Bot Management Drawer -->
   <div id="bot-drawer" class="drawer">
     <div class="drawer-header">
       <div>
@@ -154,7 +147,6 @@
     </div>
 
     <div class="drawer-body">
-      <!-- Console Tab -->
       <div id="tab-console" class="tab-content active">
         <div id="drawer-chat-log" class="console-log"></div>
         <div class="input-row">
@@ -163,12 +155,11 @@
         </div>
       </div>
 
-      <!-- HardcoreFFA Section -->
       <div id="tab-hcffa" class="tab-content">
         <div class="panel-section">
           <h4>HardcoreFFA Engine</h4>
           <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-            Triggers <strong>/play hardcoreffa</strong>, strips off armor every 60s, auto-respawns on death, and follows the specified target player.
+            Triggers <strong>/play hardcoreffa</strong> every 60s, automatically strips off armor when equipped, auto-respawns on death, and follows target (No PvP).
           </p>
           <div class="input-group">
             <label>Target Player Username</label>
@@ -181,13 +172,11 @@
         </div>
       </div>
 
-      <!-- Inventory Tab -->
       <div id="tab-inventory" class="tab-content">
         <button class="btn-outline block" style="margin-bottom: 12px;" onclick="requestInventory()">Fetch Inventory</button>
         <div id="inventory-grid" class="inventory-grid"></div>
       </div>
 
-      <!-- Info / Metadata & Disconnect Tab -->
       <div id="tab-meta" class="tab-content">
         <div class="panel-section">
           <h4>Bot Endpoint Details</h4>
@@ -200,7 +189,6 @@
     </div>
   </div>
 
-  <!-- Spawn Modal -->
   <div id="spawn-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
@@ -209,9 +197,9 @@
       </div>
       <form onsubmit="handleSpawnBot(event)">
         <div class="input-group">
-          <label>Username</label>
+          <label>Username (5-12 chars)</label>
           <div style="display: flex; gap: 8px;">
-            <input type="text" id="bot-user" required>
+            <input type="text" id="bot-user" minlength="5" maxlength="12" required>
             <button type="button" class="btn-outline" onclick="generateUsername()">Gen Pro</button>
           </div>
         </div>
@@ -219,14 +207,16 @@
           <div class="input-group"><label>Host IP</label><input type="text" id="bot-host" required></div>
           <div class="input-group"><label>Port</label><input type="text" id="bot-port" value="25565" required></div>
         </div>
-        <div class="input-group"><label>Version (Optional)</label><input type="text" id="bot-version" placeholder="e.g. 1.20.1"></div>
+        <div class="grid-2">
+          <div class="input-group"><label>Version</label><input type="text" id="bot-version" value="1.8.9" required></div>
+          <div class="input-group"><label>Bot Password (/register & /login)</label><input type="password" id="bot-password" placeholder="Server password"></div>
+        </div>
         <div class="input-group"><label>SOCKS5 Proxy (IP:PORT - Optional)</label><input type="text" id="bot-proxy" placeholder="127.0.0.1:1080"></div>
         <button type="submit" class="btn-glow block" style="margin-top: 12px;">Connect Instance</button>
       </form>
     </div>
   </div>
 
-  <!-- Tools & Proxy Modal -->
   <div id="tools-modal" class="modal">
     <div class="modal-card">
       <div class="modal-header">
@@ -251,14 +241,13 @@
     </div>
   </div>
 
-  <!-- Admin Screen -->
   <div id="admin-screen" class="screen">
     <div class="dash-container">
       <h2 style="margin-bottom: 20px;">Admin Portal</h2>
       <div class="panel-section" style="overflow-x: auto;">
         <table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 0.85rem;">
           <thead>
-            <tr style="border-b: 1px solid var(--border-glow); color: var(--text-muted);">
+            <tr style="border-bottom: 1px solid var(--border-glow); color: var(--text-muted);">
               <th style="padding: 10px;">Username</th>
               <th>Email</th>
               <th>Role</th>
@@ -277,4 +266,5 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="app.js"></script>
 </body>
-</html>
+  </html>
+      
