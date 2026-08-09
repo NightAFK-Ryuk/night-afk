@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Night AFK Control Center</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    :root { --bg: #0d0f12; --panel: #161b22; --accent: #6e40c9; --text: #c9d1d9; --green: #2ea043; --red: #da3633; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+    .hidden { display: none !important; }
+    header { background: var(--panel); border-bottom: 1px solid #30363d; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; }
+    h1 { color: #fff; margin: 0; font-size: 22px; }
+    .btn { background: var(--accent); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+    .btn-red { background: var(--red); }
+    .btn-green { background: var(--green); }
+    .container { padding: 30px; max-width: 1400px; margin: 0 auto; }
+    .grid { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+    .card { background: var(--panel); border: 1px solid #30363d; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    input { width: 100%; padding: 10px; margin: 8px 0; background: #0d1117; border: 1px solid #30363d; color: #fff; border-radius: 6px; box-sizing: border-box; }
+    .bot-card { border: 1px solid #30363d; border-radius: 6px; padding: 15px; background: #0d1117; margin-bottom: 10px; }
+    .inventory-grid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 5px; margin-top: 10px; }
+    .slot { background: #21262d; border: 1px solid #30363d; height: 45px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; border-radius: 4px; cursor: pointer; text-align: center; }
+    .slot:hover { border-color: var(--accent); }
+    .logs { background: #000; color: #00ff66; padding: 10px; font-family: monospace; height: 150px; overflow-y: scroll; border-radius: 6px; font-size: 12px; }
+    .badge { background: #30363d; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🌙 Night AFK</h1>
+    <div id="userNav">
+      <button class="btn" onclick="showAuth('login')">Log In</button>
+      <button class="btn btn-green" onclick="showAuth('register')">Sign Up</button>
+    </div>
+  </header>
+
+  <div class="container">
+    <div id="introPage" class="card">
+      <h2>Welcome to Night AFK</h2>
+      <p>Multi-user web platform for hosting Minecraft bots with isolated session databases.</p>
+      <button class="btn btn-green" onclick="showAuth('register')">Create Account</button>
+    </div>
+
+    <div id="authPage" class="card hidden" style="max-width: 400px; margin: 0 auto;">
+      <h3 id="authTitle">Log In</h3>
+      <input type="text" id="authUsername" placeholder="Username">
+      <input type="email" id="authEmail" class="hidden" placeholder="Email Address">
+      <input type="password" id="authPassword" placeholder="Password">
+      <button class="btn" onclick="handleAuth()">Submit</button>
+    </div>
+
+    <div id="dashboard" class="hidden">
+      <div id="adminPanel" class="card hidden">
+        <h3>🛡️ Admin Approval Panel (Ryuk)</h3>
+        <div id="pendingUsersList">Checking pending users...</div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <div class="card">
+            <h3>Spawn Bot</h3>
+            <label>Server IP:Port</label>
+            <input type="text" id="mcServer" value="play.hypixel.net">
+            
+            <label>Bot Username</label>
+            <div style="display:flex; gap:5px;">
+              <input type="text" id="mcUsername" placeholder="Username">
+              <button class="btn" onclick="genName()">🎲 Gen</button>
+            </div>
+
+            <label>Password</label>
+            <input type="password" id="mcPassword" placeholder="Optional">
+
+            <label>SOCKS5 Proxy</label>
+            <input type="text" id="mcProxy" placeholder="Optional">
+            <button class="btn" onclick="checkProxy()" style="width:100%; margin-bottom:8px;">Test Proxy</button>
+
+            <label>Auto-Eat HP Threshold</label>
+            <input type="number" id="autoEatHp" value="10" min="1" max="20">
+
+            <button class="btn btn-green" onclick="spawnBot()" style="width:100%;">Spawn Bot</button>
+          </div>
+
+          <div class="card">
+            <h3>Global Chat</h3>
+            <input type="text" id="globalMsg" placeholder="Send to all my bots...">
+            <button class="btn" onclick="sendGlobalChat()" style="width:100%;">Broadcast</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <h3>My Bot Session Database</h3>
+            <div id="botList">No active sessions.</div>
+          </div>
+
+          <div class="card">
+            <h3>GUI Menu / Inventory</h3>
+            <div id="inventoryTitle">Select a bot and click "View Inventory"</div>
+            <div id="inventoryGrid" class="inventory-grid"></div>
+          </div>
+
+          <div class="card">
+            <h3>System Terminal Logs</h3>
+            <div id="logs" class="logs"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let currentAuthMode = 'login';
+    let currentUser = null;
+    let myBotIds = new Set();
+
+    fetch('/api/me').then(res => res.json()).then(data => {
+      if (data.username) setupDashboard(data);
+    });
+
+    function showAuth(mode) {
+      currentAuthMode = mode;
+      document.getElementById('introPage').classList.add('hidden');
+      document.getElementById('authPage').classList.remove('hidden');
+      document.getElementById('authTitle').innerText = mode === 'login' ? 'Log In' : 'Sign Up';
+      document.getElementById('authEmail').classList.toggle('hidden', mode === 'login');
+    }
+
+    async function handleAuth() {
+      const username = document.getElementById('authUsername').value;
+      const password = document.getElementById('authPassword').value;
+      const email = document.getElementById('authEmail').value;
+
+      const endpoint = currentAuthMode === 'login' ? '/api/login' : '/api/register';
+      const body = currentAuthMode === 'login' ? { username, password } : { username, email, password };
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        if (currentAuthMode === 'login') setupDashboard(data.user);
+        else { alert(data.message); showAuth('login'); }
+      } else {
+        alert(data.error);
+      }
+    }
+
+    function setupDashboard(user) {
+      currentUser = user;
+      document.getElementById('introPage').classList.add('hidden');
+      document.getElementById('authPage').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
+      document.getElementById('userNav').innerHTML = `<span>User: <b>${user.username}</b> (${user.role})</span> <button class="btn btn-red" onclick="logout()">Logout</button>`;
+
+      if (user.role === 'admin') {
+        document.getElementById('adminPanel').classList.remove('hidden');
+        loadPendingUsers();
+      }
+
+      socket.emit('request_bot_sync');
+    }
+
+    async function logout() {
+      await fetch('/api/logout', { method: 'POST' });
+      location.reload();
+    }
+
+    async function loadPendingUsers() {
+      const res = await fetch('/api/admin/users');
+      const users = await res.json();
+      const pending = users.filter(u => u.status === 'pending');
+      const container = document.getElementById('pendingUsersList');
+      
+      if (pending.length === 0) { container.innerHTML = '<p>No pending approvals.</p>'; return; }
+
+      container.innerHTML = pending.map(u => `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+          <span>${u.username} (${u.email})</span>
+          <button class="btn btn-green" onclick="activateUser('${u.username}')">Activate User</button>
+        </div>
+      `).join('');
+    }
+
+    async function activateUser(username) {
+      await fetch('/api/admin/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetUser: username })
+      });
+      loadPendingUsers();
+    }
+
+    function genName() { socket.emit('generate_username'); }
+    socket.on('username_generated', name => document.getElementById('mcUsername').value = name);
+
+    function checkProxy() { socket.emit('test_proxy', document.getElementById('mcProxy').value); }
+    socket.on('proxy_test_result', res => alert(res.success ? 'Proxy Online!' : 'Proxy Error: ' + res.reason));
+
+    function spawnBot() {
+      const config = {
+        host: document.getElementById('mcServer').value.split(':')[0],
+        port: document.getElementById('mcServer').value.split(':')[1] || 25565,
+        username: document.getElementById('mcUsername').value,
+        password: document.getElementById('mcPassword').value,
+        proxy: document.getElementById('mcProxy').value,
+        autoEatHp: parseInt(document.getElementById('autoEatHp').value, 10)
+      };
+      socket.emit('spawn_bot', config);
+    }
+
+    socket.on('bot_sync', bots => {
+      document.getElementById('botList').innerHTML = '';
+      myBotIds.clear();
+      bots.forEach(addBotCard);
+    });
+
+    socket.on('bot_status', data => {
+      addBotCard(data);
+      log(`[${data.username}] Status: ${data.status}`);
+    });
+
+    function addBotCard(data) {
+      myBotIds.add(data.botId);
+      let card = document.getElementById(`bot-${data.botId}`);
+      if (!card) {
+        card = document.createElement('div');
+        card.id = `bot-${data.botId}`;
+        card.className = 'bot-card';
+        document.getElementById('botList').appendChild(card);
+      }
+
+      const ownerBadge = currentUser.role === 'admin' ? `<span class="badge">Owner: ${data.ownerUsername}</span>` : '';
+
+      card.innerHTML = `
+        <div style="display:flex; justify-content:space-between;">
+          <b>${data.username} ${ownerBadge}</b>
+          <span style="color:${data.status === 'Online' ? 'lime' : 'red'}">${data.status || 'Active'}</span>
+        </div>
+        <div>HP: ${data.health || 20}/20 | Food: ${data.food || 20}/20</div>
+        <div style="margin-top:8px; display:flex; gap:5px; flex-wrap:wrap;">
+          <button class="btn" onclick="fetchInv('${data.botId}')">View Inventory</button>
+          <button class="btn" onclick="startPvp('${data.botId}')">PVP Target</button>
+          <button class="btn" onclick="toggleMsg('${data.botId}')">60s AutoChat</button>
+          <button class="btn btn-red" onclick="disconnectBot('${data.botId}')">Disconnect</button>
+        </div>
+      `;
+    }
+
+    function fetchInv(botId) { socket.emit('fetch_inventory', botId); }
+
+    socket.on('bot_window_open', data => {
+      document.getElementById('inventoryTitle').innerText = `Window: ${data.title}`;
+      const grid = document.getElementById('inventoryGrid');
+      grid.innerHTML = '';
+
+      data.slots.forEach((slot, index) => {
+        const el = document.createElement('div');
+        el.className = 'slot';
+        el.innerText = slot ? `${slot.name}\nx${slot.count}` : index;
+        el.onclick = () => socket.emit('click_slot', { botId: data.botId, slotId: index });
+        grid.appendChild(el);
+      });
+    });
+
+    function startPvp(botId) {
+      const target = prompt("Enter target player username to attack:");
+      if (target) socket.emit('start_pvp', { botId, targetUsername: target });
+    }
+
+    function toggleMsg(botId) {
+      const msg = prompt("Enter auto-chat message (repeats every 60s):");
+      if (msg) socket.emit('toggle_messenger', { botId, enabled: true, message: msg });
+    }
+
+    function disconnectBot(botId) { socket.emit('disconnect_bot', botId); }
+
+    socket.on('bot_removed', botId => {
+      const card = document.getElementById(`bot-${botId}`);
+      if (card) card.remove();
+    });
+
+    function sendGlobalChat() {
+      const message = document.getElementById('globalMsg').value;
+      socket.emit('send_chat', { botIds: Array.from(myBotIds), message });
+    }
+
+    socket.on('bot_log', data => log(`[${data.botId}] ${data.log}`));
+    socket.on('bot_chat_log', data => log(`[CHAT - ${data.username}]: ${data.message}`));
+
+    function log(text) {
+      const box = document.getElementById('logs');
+      box.innerHTML += `<div>${text}</div>`;
+      box.scrollTop = box.scrollHeight;
+    }
+  </script>
+</body>
+              </html>
+              
