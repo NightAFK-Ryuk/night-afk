@@ -117,7 +117,6 @@ io.on('connection', (socket) => {
 
   socket.on('spawn_bot', (config) => {
     const botId = `bot_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-    const sessionUser = socket.handshake.headers.cookie; // fallback tracking
     const ownerName = config.ownerUsername || 'Ryuk';
 
     const botOptions = {
@@ -126,25 +125,40 @@ io.on('connection', (socket) => {
       username: config.username,
       version: config.version || '1.8.9',
       skipValidation: true,
-      hideErrors: false
+      keepAlive: true
     };
 
+    // Advanced SOCKS5 Proxy Binding with Residential Support
     if (config.proxy && config.proxy.trim() !== '') {
-      const [pHost, pPort] = config.proxy.split(':');
+      const parts = config.proxy.split(':');
+      const pHost = parts[0];
+      const pPort = parseInt(parts[1]);
+      const pUser = parts[2];
+      const pPass = parts[3];
+
+      const proxyConfig = {
+        ipaddress: pHost,
+        port: pPort,
+        type: 5
+      };
+
+      if (pUser && pPass) {
+        proxyConfig.userId = pUser;
+        proxyConfig.password = pPass;
+      }
+
       botOptions.connect = (client) => {
         SocksClient.createConnection({
-          proxy: { ipaddress: pHost, port: parseInt(pPort), type: 5 },
+          proxy: proxyConfig,
           command: 'connect',
-          destination: { host: config.host, port: parseInt(config.port) || 25565 },
-          timeout: 10000
+          destination: { host: config.host, port: parseInt(config.port) || 25565 }
         }, (err, info) => {
           if (err) {
-            io.emit('bot_log', { botId, message: `Proxy Connection Failed: ${err.message}` });
+            io.emit('bot_log', { botId, message: `Proxy Handshake Error: ${err.message}` });
             client.emit('error', err);
             return;
           }
-          const socketStream = info.socket;
-          client.setSocket(socketStream);
+          client.setSocket(info.socket);
           client.emit('connect');
         });
       };
@@ -172,7 +186,7 @@ io.on('connection', (socket) => {
         botEntry.status = 'Online';
         botEntry.startTime = Date.now();
         io.emit('bot_status_update', { botId, status: 'Online', uptime: 0 });
-        io.emit('bot_log', { botId, message: 'Successfully spawned on the server!' });
+        io.emit('bot_log', { botId, message: 'Successfully connected and spawned on the server!' });
 
         const defaultMove = new movements(bot);
         bot.pathfinder.setMovements(defaultMove);
@@ -181,7 +195,7 @@ io.on('connection', (socket) => {
           setTimeout(() => {
             if (botEntry.isFirstJoin) {
               bot.chat(`/register ${config.botPassword} ${config.botPassword}`);
-              io.emit('bot_log', { botId, message: 'Sent /register command.' });
+              io.emit('bot_log', { botId, message: 'Sent initial /register command.' });
               botEntry.isFirstJoin = false;
             } else {
               bot.chat(`/login ${config.botPassword}`);
@@ -211,11 +225,11 @@ io.on('connection', (socket) => {
       });
 
       bot.on('kicked', (reason) => {
-        io.emit('bot_log', { botId, message: `Kicked: ${reason}` });
+        io.emit('bot_log', { botId, message: `Kicked from server: ${reason}` });
       });
 
       bot.on('error', (err) => {
-        io.emit('bot_log', { botId, message: `Minecraft Error: ${err.message}` });
+        io.emit('bot_log', { botId, message: `Client Error: ${err.message}` });
       });
 
       bot.on('end', (reason) => {
@@ -225,11 +239,11 @@ io.on('connection', (socket) => {
         if (botEntry.armorCheckInterval) clearInterval(botEntry.armorCheckInterval);
         if (botEntry.followInterval) clearInterval(botEntry.followInterval);
         io.emit('bot_status_update', { botId, status: 'Offline', uptime: 0 });
-        io.emit('bot_log', { botId, message: `Disconnected. Reason: ${reason || 'Unknown'}` });
+        io.emit('bot_log', { botId, message: `Connection ended. Reason: ${reason || 'Unknown'}` });
       });
 
     } catch (err) {
-      socket.emit('bot_log', { botId, message: `Initialization Exception: ${err.message}` });
+      socket.emit('bot_log', { botId, message: `Failed to create bot instance: ${err.message}` });
     }
   });
 
@@ -317,10 +331,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('test_proxy_tcp', (proxyStr) => {
-    const [pHost, pPort] = proxyStr.split(':');
-    if (!pHost || !pPort) return socket.emit('proxy_test_result', { success: false, reason: 'Invalid format. Use IP:PORT' });
+    const parts = proxyStr.split(':');
+    const pHost = parts[0];
+    const pPort = parseInt(parts[1]);
+    if (!pHost || !pPort) return socket.emit('proxy_test_result', { success: false, reason: 'Invalid format. Use IP:PORT or IP:PORT:USER:PASS' });
 
-    const socketConn = net.createConnection({ host: pHost, port: parseInt(pPort), timeout: 5000 }, () => {
+    const socketConn = net.createConnection({ host: pHost, port: pPort, timeout: 5000 }, () => {
       socketConn.end();
       socket.emit('proxy_test_result', { success: true, host: pHost, port: pPort });
     });
