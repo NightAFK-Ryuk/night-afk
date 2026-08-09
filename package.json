@@ -1,19 +1,22 @@
 {
-  "name": "night-afk",
+  "name": "night-afk-bot-host",
   "version": "1.0.0",
-  "description": "Night AFK Private Bot Control Center",
+  "description": "Minecraft AFK Bot Web Interface",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "express-session": "^1.17.3",
-    "mineflayer": "^4.12.0",
-    "mineflayer-auto-eat": "^2.0.1",
-    "mineflayer-pathfinder": "^2.4.0",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "mineflayer": "^4.20.1",
+    "mineflayer-auto-eat": "^3.3.0",
+    "mineflayer-pathfinder": "^2.4.5",
     "mineflayer-pvp": "^1.3.2",
-    "socket.io": "^4.7.2",
-    "socks": "^2.7.1"
+    "socket.io": "^4.7.5",
+    "socks": "^2.8.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
