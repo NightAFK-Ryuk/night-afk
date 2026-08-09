@@ -16,11 +16,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Permanent session fix: prevents automatic random logouts
 app.use(session({
-  secret: 'night-afk-super-secret-key',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 }
+  secret: 'night-afk-super-secret-key-fixed',
+  resave: true,
+  saveUninitialized: true,
+  cookie: { 
+    secure: false, 
+    maxAge: 30 * 24 * 60 * 60 * 1000 // 30 Days persistence
+  }
 }));
 
 const users = new Map();
@@ -128,6 +132,7 @@ io.on('connection', (socket) => {
       keepAlive: true
     };
 
+    // Fixed SOCKS5 TCP Proxy Handling Block
     if (config.proxy && config.proxy.trim() !== '') {
       const parts = config.proxy.trim().split(':');
       const pHost = parts[0];
@@ -135,32 +140,30 @@ io.on('connection', (socket) => {
       const pUser = parts[2];
       const pPass = parts[3];
 
-      const proxyConfig = {
-        ipaddress: pHost,
+      const proxyOptions = {
+        host: pHost,
         port: pPort,
         type: 5
       };
 
       if (pUser && pPass) {
-        proxyConfig.userId = pUser;
-        proxyConfig.password = pPass;
+        proxyOptions.userId = pUser;
+        proxyOptions.password = pPass;
       }
 
       botOptions.connect = (client) => {
         SocksClient.createConnection({
-          proxy: proxyConfig,
+          proxy: proxyOptions,
           command: 'connect',
           destination: { host: config.host, port: parseInt(config.port) || 25565 },
-          timeout: 15000
+          timeout: 20000
         }, (err, info) => {
           if (err) {
-            io.emit('bot_log', { botId, message: `SOCKS5 Proxy Failed: ${err.message}` });
+            io.emit('bot_log', { botId, message: `SOCKS5 Connection Failed: ${err.message}` });
             client.emit('error', err);
             return;
           }
-          
-          const rawSocket = info.socket;
-          client.setSocket(rawSocket);
+          client.setSocket(info.socket);
           client.emit('connect');
         });
       };
@@ -188,7 +191,7 @@ io.on('connection', (socket) => {
         botEntry.status = 'Online';
         botEntry.startTime = Date.now();
         io.emit('bot_status_update', { botId, status: 'Online', uptime: 0 });
-        io.emit('bot_log', { botId, message: 'Successfully authenticated, connected, and spawned!' });
+        io.emit('bot_log', { botId, message: 'Successfully authenticated, connected via SOCKS5, and spawned!' });
 
         const defaultMove = new movements(bot);
         bot.pathfinder.setMovements(defaultMove);
@@ -401,4 +404,4 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`NIGHT AFK Core running on port ${PORT}`));
-        
+      
