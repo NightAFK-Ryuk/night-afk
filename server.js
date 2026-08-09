@@ -5,7 +5,7 @@ const session = require('express-session');
 const FileStore = require('session-file-store')(session);
 const mineflayer = require('mineflayer');
 const { SocksClient } = require('socks');
-const { pathfinder, Movements } = require('mineflayer-pathfinder');
+const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const https = require('https');
 const path = require('path');
 
@@ -167,7 +167,24 @@ app.post('/api/admin/user-action', (req, res) => {
   res.json({ success: true });
 });
 
-// Mineflayer Instance Manager (Stationary AFK, Auto Register/Login & Reconnect)
+// Helper: Remove all equipped armor pieces from the bot's inventory slots
+async function removeAllArmor(bot) {
+  const armorSlots = [5, 6, 7, 8]; // Standard Minecraft armor inventory indices
+  for (const slot of armorSlots) {
+    const item = bot.inventory.slots[slot];
+    if (item) {
+      try {
+        // Quick move or click slot to empty inventory/drop armor
+        await bot.clickWindow(slot, 0, 0);
+        await bot.clickWindow(-999, 0, 0); // Drop outside window
+      } catch (err) {
+        // Ignore individual slot strip errors
+      }
+    }
+  }
+}
+
+// Mineflayer Instance Manager with persistent loops, robust login sequences, and HardcoreFFA actions
 function createWebBot(config, ownerUsername, existingBotId = null) {
   const botId = existingBotId || `bot_${config.username}_${Date.now()}`;
 
@@ -205,12 +222,13 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
     ownerUsername,
     startTime: Date.now(),
     reconnectTimer: null,
+    hardcoreLoopInterval: null,
     manualDisconnect: false
   };
 
   botInstances.set(botId, instance);
 
-  bot.once('spawn', () => {
+  bot.once('spawn', async () => {
     emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
       botId,
       username: config.username,
@@ -225,15 +243,38 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
     const defaultMove = new Movements(bot);
     bot.pathfinder.setMovements(defaultMove);
 
-    // Guaranteed Authentication Sequence on Join & Reconnect
-    if (config.password) {
+    // Reliable Authentication Sequence using password supplied from the browser dashboard
+    if (config.password && config.password.trim() !== '') {
+      const pass = config.password.trim();
       setTimeout(() => {
-        bot.chat(`/register ${config.password} ${config.password}`);
+        bot.chat(`/register ${pass} ${pass}`);
         setTimeout(() => {
-          bot.chat(`/login ${config.password}`);
-        }, 1500);
-      }, 2500);
+          bot.chat(`/login ${pass}`);
+        }, 2000);
+      }, 3000);
     }
+
+    // Hardcore FFA Sequence: Send /play hardcoreffa, strip armor, and follow targeted player loop
+    setTimeout(async () => {
+      bot.chat('/play hardcoreffa');
+      
+      // Strip all armor pieces
+      await removeAllArmor(bot);
+
+      // Start targeting and following loop if specified in config
+      if (instance.hardcoreLoopInterval) clearInterval(instance.hardcoreLoopInterval);
+      instance.hardcoreLoopInterval = setInterval(() => {
+        if (!bot.entity) return;
+
+        // If a target player username is supplied in config, follow them continuously
+        if (config.targetPlayer && config.targetPlayer.trim() !== '') {
+          const target = bot.players[config.targetPlayer]?.entity;
+          if (target) {
+            bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true);
+          }
+        }
+      }, 3000);
+    }, 5000);
   });
 
   bot.on('health', () => {
@@ -250,6 +291,8 @@ function createWebBot(config, ownerUsername, existingBotId = null) {
   });
 
   bot.on('end', (reason) => {
+    if (instance.hardcoreLoopInterval) clearInterval(instance.hardcoreLoopInterval);
+
     emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
       botId, username: config.username, ownerUsername, status: `Offline (${reason})`
     });
@@ -338,6 +381,7 @@ io.on('connection', (socket) => {
     if (inst) {
       inst.manualDisconnect = true;
       if (inst.reconnectTimer) clearTimeout(inst.reconnectTimer);
+      if (inst.hardcoreLoopInterval) clearInterval(inst.hardcoreLoopInterval);
       if (inst.bot) inst.bot.quit();
       botInstances.delete(botId);
       emitToUserOrAdmin(inst.ownerUsername, 'bot_removed', botId);
@@ -399,4 +443,4 @@ io.on('connection', (socket) => {
 server.listen(PORT, () => {
   console.log(`[Night AFK] Live on port ${PORT}`);
 });
-            
+  
