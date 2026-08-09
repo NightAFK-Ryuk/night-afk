@@ -56,6 +56,48 @@ app.post('/api/logout', (req, res) => {
   res.json({ message: 'Logged out' });
 });
 
+app.get('/api/admin/users', (req, res) => {
+  if (!req.session || !req.session.user || req.session.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+  const list = [];
+  users.forEach((u, username) => {
+    let botCount = 0;
+    activeBots.forEach((b) => {
+      if (b.config.ownerUsername === username) botCount++;
+    });
+    list.push({
+      username: u.username,
+      email: u.email,
+      role: u.role,
+      status: u.status,
+      botCount,
+      createdAt: u.createdAt
+    });
+  });
+  res.json(list);
+});
+
+app.post('/api/admin/user-action', (req, res) => {
+  if (!req.session || !req.session.user || req.session.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Unauthorized' });
+  }
+  const { targetUser, action } = req.body;
+  const user = users.get(targetUser);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  if (action === 'activate') {
+    user.status = 'active';
+    res.json({ message: 'User activated successfully' });
+  } else if (action === 'delete') {
+    if (targetUser === 'Ryuk') return res.status(400).json({ error: 'Cannot delete master admin' });
+    users.delete(targetUser);
+    res.json({ message: 'User deleted' });
+  } else {
+    res.status(400).json({ error: 'Invalid action' });
+  }
+});
+
 io.on('connection', (socket) => {
 
   socket.on('request_bot_sync', () => {
@@ -75,12 +117,16 @@ io.on('connection', (socket) => {
 
   socket.on('spawn_bot', (config) => {
     const botId = `bot_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const sessionUser = socket.handshake.headers.cookie; // fallback tracking
+    const ownerName = config.ownerUsername || 'Ryuk';
+
     const botOptions = {
       host: config.host,
       port: parseInt(config.port) || 25565,
       username: config.username,
       version: config.version || '1.8.9',
-      skipValidation: true
+      skipValidation: true,
+      hideErrors: false
     };
 
     if (config.proxy && config.proxy.trim() !== '') {
@@ -89,14 +135,16 @@ io.on('connection', (socket) => {
         SocksClient.createConnection({
           proxy: { ipaddress: pHost, port: parseInt(pPort), type: 5 },
           command: 'connect',
-          destination: { host: config.host, port: parseInt(config.port) || 25565 }
+          destination: { host: config.host, port: parseInt(config.port) || 25565 },
+          timeout: 10000
         }, (err, info) => {
           if (err) {
-            io.emit('bot_log', { botId, message: `SOCKS5 Proxy Error: ${err.message}` });
+            io.emit('bot_log', { botId, message: `Proxy Connection Failed: ${err.message}` });
             client.emit('error', err);
             return;
           }
-          client.setSocket(info.socket);
+          const socketStream = info.socket;
+          client.setSocket(socketStream);
           client.emit('connect');
         });
       };
@@ -108,7 +156,7 @@ io.on('connection', (socket) => {
 
       const botEntry = {
         bot,
-        config: { ...config, botId },
+        config: { ...config, botId, ownerUsername: ownerName },
         status: 'Connecting',
         hcffaInterval: null,
         armorCheckInterval: null,
@@ -124,7 +172,7 @@ io.on('connection', (socket) => {
         botEntry.status = 'Online';
         botEntry.startTime = Date.now();
         io.emit('bot_status_update', { botId, status: 'Online', uptime: 0 });
-        io.emit('bot_log', { botId, message: 'Bot successfully joined and spawned on server.' });
+        io.emit('bot_log', { botId, message: 'Successfully spawned on the server!' });
 
         const defaultMove = new movements(bot);
         bot.pathfinder.setMovements(defaultMove);
@@ -133,13 +181,13 @@ io.on('connection', (socket) => {
           setTimeout(() => {
             if (botEntry.isFirstJoin) {
               bot.chat(`/register ${config.botPassword} ${config.botPassword}`);
-              io.emit('bot_log', { botId, message: 'Sent initial /register command.' });
+              io.emit('bot_log', { botId, message: 'Sent /register command.' });
               botEntry.isFirstJoin = false;
             } else {
               bot.chat(`/login ${config.botPassword}`);
               io.emit('bot_log', { botId, message: 'Sent /login command.' });
             }
-          }, 2000);
+          }, 2500);
         }
       });
 
@@ -163,25 +211,25 @@ io.on('connection', (socket) => {
       });
 
       bot.on('kicked', (reason) => {
-        io.emit('bot_log', { botId, message: `Kicked from server: ${reason}` });
+        io.emit('bot_log', { botId, message: `Kicked: ${reason}` });
       });
 
       bot.on('error', (err) => {
-        io.emit('bot_log', { botId, message: `Bot Error: ${err.message}` });
+        io.emit('bot_log', { botId, message: `Minecraft Error: ${err.message}` });
       });
 
-      bot.on('end', () => {
+      bot.on('end', (reason) => {
         botEntry.status = 'Offline';
         botEntry.startTime = null;
         if (botEntry.hcffaInterval) clearInterval(botEntry.hcffaInterval);
         if (botEntry.armorCheckInterval) clearInterval(botEntry.armorCheckInterval);
         if (botEntry.followInterval) clearInterval(botEntry.followInterval);
         io.emit('bot_status_update', { botId, status: 'Offline', uptime: 0 });
-        io.emit('bot_log', { botId, message: 'Connection lost / ended.' });
+        io.emit('bot_log', { botId, message: `Disconnected. Reason: ${reason || 'Unknown'}` });
       });
 
     } catch (err) {
-      socket.emit('bot_log', { botId, message: `Failed to initialize bot instance: ${err.message}` });
+      socket.emit('bot_log', { botId, message: `Initialization Exception: ${err.message}` });
     }
   });
 
@@ -335,4 +383,4 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`NIGHT AFK Core running on port ${PORT}`));
-          
+      
