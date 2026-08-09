@@ -177,12 +177,6 @@ function openBotDrawer(botId) {
   document.getElementById('meta-port').textContent = bot.port;
   document.getElementById('meta-owner').textContent = bot.ownerUsername;
 
-  if (bot.eatSettings) {
-    document.getElementById('eat-min-hp').value = bot.eatSettings.minHp;
-    document.getElementById('eat-max-hp').value = bot.eatSettings.maxHp;
-    document.getElementById('gapple-only').checked = bot.eatSettings.gappleOnly;
-  }
-
   document.getElementById('bot-drawer').classList.add('open');
 }
 
@@ -194,7 +188,7 @@ function closeDrawer() {
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  event.target.classList.add('active');
+  if (event) event.target.classList.add('active');
   document.getElementById(tabId).classList.add('active');
 }
 
@@ -214,22 +208,24 @@ function sendDrawerChat() {
   }
 }
 
-function saveEatSettings() {
-  if (!selectedBotId) return;
-  const minHp = document.getElementById('eat-min-hp').value;
-  const maxHp = document.getElementById('eat-max-hp').value;
-  const gappleOnly = document.getElementById('gapple-only').checked;
-
-  socket.emit('update_eat_settings', { botId: selectedBotId, minHp, maxHp, gappleOnly });
+// HardcoreFFA Section Handlers
+function startHcffa() {
+  const target = document.getElementById('hcffa-target').value;
+  if (selectedBotId && target) {
+    socket.emit('start_hcffa', { botId: selectedBotId, targetUsername: target });
+  }
 }
 
-function startPvP() {
-  const target = document.getElementById('pvp-target').value;
-  if (selectedBotId && target) socket.emit('start_pvp', { botId: selectedBotId, targetUsername: target });
+function stopHcffa() {
+  if (selectedBotId) {
+    socket.emit('stop_hcffa', { botId: selectedBotId });
+  }
 }
 
-function stopPvP() {
-  if (selectedBotId) socket.emit('stop_pvp', { botId: selectedBotId });
+function disconnectCurrentBot() {
+  if (selectedBotId) {
+    socket.emit('disconnect_bot', selectedBotId);
+  }
 }
 
 function requestInventory() {
@@ -253,7 +249,7 @@ socket.on('bot_inventory_update', ({ botId, slots }) => {
   });
 });
 
-// Utilities Modal (Proxy & Generator)
+// Utilities Modal (Proxy & Generator Pro)
 function openToolsModal() { document.getElementById('tools-modal').classList.add('open'); }
 function closeToolsModal() { document.getElementById('tools-modal').classList.remove('open'); }
 
@@ -280,7 +276,7 @@ socket.on('scraped_proxies_res', (list) => {
 function generateUsername() { socket.emit('get_random_username'); }
 socket.on('random_username_res', (name) => { document.getElementById('bot-user').value = name; });
 
-// Global Hub
+// Global Hub Commands
 function sendGlobalChat() {
   const input = document.getElementById('global-chat-input');
   if (input.value) {
@@ -301,7 +297,6 @@ function handleSpawnBot(e) {
     host: document.getElementById('bot-host').value,
     port: document.getElementById('bot-port').value,
     version: document.getElementById('bot-version').value,
-    password: document.getElementById('bot-pass').value,
     proxy: document.getElementById('bot-proxy').value
   };
 
@@ -346,4 +341,3 @@ async function adminAction(targetUser, action) {
 
 // Init
 checkAuth();
-    
