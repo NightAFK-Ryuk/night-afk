@@ -108,9 +108,12 @@ socket.on('bot_sync', (list) => {
 });
 
 socket.on('bot_status_update', (data) => {
-  const existing = activeBots.get(data.botId) || {};
+  const existing = activeBots.get(data.botId) || { uptime: 0 };
   activeBots.set(data.botId, { ...existing, ...data });
   renderBotGrid();
+  if (selectedBotId === data.botId) {
+    document.getElementById('drawer-bot-status').textContent = data.status;
+  }
 });
 
 socket.on('bot_health_update', ({ botId, health, food }) => {
@@ -174,6 +177,7 @@ function renderBotGrid() {
         <span>Food: ${bot.food || 0}/20</span>
       </div>
       <div style="margin-top: 8px; font-size: 0.75rem; color: var(--text-muted);">
+        Status: <span style="color: ${isOnline ? 'var(--success)' : 'var(--danger)'};">${bot.status}</span><br>
         Uptime: <span id="uptime-${bot.botId}">${formatUptime(bot.uptime || 0)}</span>
       </div>
     `;
@@ -190,7 +194,7 @@ function openBotDrawer(botId) {
   document.getElementById('drawer-bot-status').textContent = bot.status;
   document.getElementById('meta-host').textContent = bot.host;
   document.getElementById('meta-port').textContent = bot.port;
-  document.getElementById('meta-owner').textContent = bot.ownerUsername;
+  document.getElementById('meta-owner').textContent = bot.ownerUsername || 'Ryuk';
 
   document.getElementById('bot-drawer').classList.add('open');
 }
