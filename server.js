@@ -1,39 +1,43 @@
 const express = require('express');
+const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
 const mineflayer = require('mineflayer');
 const { SocksClient } = require('socks');
-const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DB_FILE = './bots_db.json';
+const USERS_FILE = './users_db.json';
+const BOTS_FILE = './bots_db.json';
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const activeBots = new Map(); // username -> { bot, startTime, afkInterval, reconnectTimer, options }
+app.use(session({
+  secret: 'night-afk-super-secret-key-2026',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 } // 30 days session
+}));
+
+// Global active bot instances (keeps running in background even if web user logs out)
+const activeBots = new Map(); // username -> { bot, startTime, afkInterval, reconnectTimer, options, owner }
 
 // ==========================================
 // DATABASE UTILITIES
 // ==========================================
-function loadDatabase() {
+function loadJson(file) {
   try {
-    if (fs.existsSync(DB_FILE)) {
-      return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    }
-  } catch (err) {
-    console.error('[Database] Load error:', err);
-  }
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) { console.error(`Error loading ${file}:`, err); }
   return {};
 }
 
-function saveDatabase(data) {
+function saveJson(file, data) {
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error('[Database] Save error:', err);
-  }
+    fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  } catch (err) { console.error(`Error saving ${file}:`, err); }
 }
 
 // ==========================================
@@ -87,10 +91,10 @@ function formatUptime(ms) {
 }
 
 // ==========================================
-// BOT ENGINE
+// BOT ENGINE (Background Persistent)
 // ==========================================
 function startBotInstance(options) {
-  const { username, password, proxyStr, mcVersion, host, port } = options;
+  const { username, password, proxyStr, mcVersion, host, port, owner } = options;
 
   const botOpts = {
     host,
@@ -102,9 +106,7 @@ function startBotInstance(options) {
 
   if (proxyStr) {
     const parsedProxy = parseProxy(proxyStr);
-    if (parsedProxy) {
-      botOpts.connect = createSocksConnect(parsedProxy, host, port);
-    }
+    if (parsedProxy) botOpts.connect = createSocksConnect(parsedProxy, host, port);
   }
 
   let bot;
@@ -120,20 +122,22 @@ function startBotInstance(options) {
     startTime: Date.now(),
     afkInterval: null,
     reconnectTimer: null,
-    options
+    options,
+    owner
   };
 
   instanceData.bot = bot;
   activeBots.set(username, instanceData);
 
-  const db = loadDatabase();
-  db[username] = { username, password, proxyStr, mcVersion, host, port };
-  saveDatabase(db);
+  // Save to user's persistent database
+  const allBots = loadJson(BOTS_FILE);
+  if (!allBots[owner]) allBots[owner] = {};
+  allBots[owner][username] = { username, password, proxyStr, mcVersion, host, port };
+  saveJson(BOTS_FILE, allBots);
 
   bot.once('spawn', () => {
-    console.log(`[Bot ${username}] Connected & Spawned.`);
+    console.log(`[Bot ${username}] Connected & Spawned in background.`);
 
-    // Anti-AFK Loop
     if (instanceData.afkInterval) clearInterval(instanceData.afkInterval);
     instanceData.afkInterval = setInterval(() => {
       if (bot && bot.entity) {
@@ -144,7 +148,6 @@ function startBotInstance(options) {
       }
     }, 40000);
 
-    // Auto Login / Register
     if (password) {
       setTimeout(() => {
         bot.chat(`/register ${password} ${password}`);
@@ -179,9 +182,54 @@ function startBotInstance(options) {
 }
 
 // ==========================================
-// API ROUTES
+// AUTH & API ROUTES
 // ==========================================
-app.post('/api/spawn', (req, res) => {
+app.post('/api/register', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+
+  const users = loadJson(USERS_FILE);
+  if (users[username]) return res.status(400).json({ error: 'Username already exists' });
+
+  users[username] = password;
+  saveJson(USERS_FILE, users);
+  req.session.user = username;
+  res.json({ success: true });
+});
+
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  const users = loadJson(USERS_FILE);
+
+  if (!users[username] || users[username] !== password) {
+    return res.status(401).json({ error: 'Invalid username or password' });
+  }
+
+  req.session.user = username;
+  res.json({ success: true });
+});
+
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.json({ success: true });
+  });
+});
+
+app.get('/api/session', (req, res) => {
+  if (req.session.user) {
+    res.json({ loggedIn: true, user: req.session.user });
+  } else {
+    res.json({ loggedIn: false });
+  }
+});
+
+// Middleware for authenticated routes
+function requireAuth(req, res, next) {
+  if (req.session.user) next();
+  else res.status(401).json({ error: 'Unauthorized' });
+}
+
+app.post('/api/spawn', requireAuth, (req, res) => {
   const { server, username, password, proxy, version } = req.body;
   if (!server || !username) return res.status(400).json({ error: 'Server and username required' });
 
@@ -192,25 +240,29 @@ app.post('/api/spawn', (req, res) => {
   const [host, portRaw] = server.split(':');
   const port = parseInt(portRaw, 10) || 25565;
 
-  const botOptions = { username, password, proxyStr: proxy, mcVersion: version || '1.8.9', host, port };
+  const botOptions = { username, password, proxyStr: proxy, mcVersion: version || '1.8.9', host, port, owner: req.session.user };
   startBotInstance(botOptions);
-  res.json({ success: true, message: `Spawning ${username}...` });
+  res.json({ success: true, message: `Spawning ${username} in background...` });
 });
 
-app.post('/api/disconnect', (req, res) => {
+app.post('/api/disconnect', requireAuth, (req, res) => {
   const { username } = req.body;
+  const currentUser = req.session.user;
+
   if (username === 'all') {
     activeBots.forEach((data, name) => {
-      if (data.reconnectTimer) clearTimeout(data.reconnectTimer);
-      if (data.afkInterval) clearInterval(data.afkInterval);
-      if (data.bot) data.bot.quit();
+      if (data.owner === currentUser) {
+        if (data.reconnectTimer) clearTimeout(data.reconnectTimer);
+        if (data.afkInterval) clearInterval(data.afkInterval);
+        if (data.bot) data.bot.quit();
+        activeBots.delete(name);
+      }
     });
-    activeBots.clear();
-    return res.json({ success: true, message: 'Disconnected all bots.' });
+    return res.json({ success: true, message: 'Disconnected all your bots.' });
   }
 
   const botData = activeBots.get(username);
-  if (!botData) return res.status(404).json({ error: 'Bot not found' });
+  if (!botData || botData.owner !== currentUser) return res.status(404).json({ error: 'Bot not found' });
 
   if (botData.reconnectTimer) clearTimeout(botData.reconnectTimer);
   if (botData.afkInterval) clearInterval(botData.afkInterval);
@@ -220,38 +272,50 @@ app.post('/api/disconnect', (req, res) => {
   res.json({ success: true, message: `Disconnected ${username}` });
 });
 
-app.get('/api/status', (req, res) => {
+app.get('/api/status', requireAuth, (req, res) => {
+  const currentUser = req.session.user;
   const statuses = [];
+
   activeBots.forEach((data, username) => {
-    const { bot, startTime, options } = data;
-    statuses.push({
-      username,
-      host: `${options.host}:${options.port}`,
-      uptime: formatUptime(Date.now() - startTime),
-      health: bot && bot.health ? bot.health.toFixed(1) : 'N/A',
-      food: bot && bot.food ? bot.food.toFixed(1) : 'N/A',
-      ping: bot && bot.player ? bot.player.ping : 'N/A',
-      proxy: extractProxyIp(options.proxyStr)
-    });
+    if (data.owner === currentUser) {
+      const { bot, startTime, options } = data;
+      statuses.push({
+        username,
+        host: `${options.host}:${options.port}`,
+        uptime: formatUptime(Date.now() - startTime),
+        health: bot && bot.health ? bot.health.toFixed(1) : 'N/A',
+        food: bot && bot.food ? bot.food.toFixed(1) : 'N/A',
+        ping: bot && bot.player ? bot.player.ping : 'N/A',
+        proxy: extractProxyIp(options.proxyStr)
+      });
+    }
   });
   res.json(statuses);
 });
 
-app.post('/api/chat', (req, res) => {
+app.post('/api/chat', requireAuth, (req, res) => {
   const { username, message } = req.body;
+  const currentUser = req.session.user;
+
   if (username === 'all') {
-    activeBots.forEach((data) => { if (data.bot) data.bot.chat(message); });
+    activeBots.forEach((data) => {
+      if (data.owner === currentUser && data.bot) data.bot.chat(message);
+    });
     return res.json({ success: true });
   }
   const data = activeBots.get(username);
-  if (!data || !data.bot) return res.status(404).json({ error: 'Bot offline' });
+  if (!data || data.owner !== currentUser || !data.bot) return res.status(404).json({ error: 'Bot offline' });
   data.bot.chat(message);
   res.json({ success: true });
 });
 
-app.post('/api/move', (req, res) => {
+app.post('/api/move', requireAuth, (req, res) => {
   const { username, direction, duration = 1000 } = req.body;
-  const targets = username === 'all' ? Array.from(activeBots.values()) : [activeBots.get(username)];
+  const currentUser = req.session.user;
+
+  const targets = username === 'all' 
+    ? Array.from(activeBots.values()).filter(d => d.owner === currentUser) 
+    : [activeBots.get(username)].filter(d => d && d.owner === currentUser);
 
   targets.forEach((data) => {
     if (data && data.bot) {
@@ -262,22 +326,7 @@ app.post('/api/move', (req, res) => {
   res.json({ success: true });
 });
 
-app.get('/api/inventory', (req, res) => {
-  const { username } = req.query;
-  const data = activeBots.get(username);
-  if (!data || !data.bot) return res.status(404).json({ error: 'Bot offline' });
-
-  const activeWindow = data.bot.currentWindow || data.bot.inventory;
-  const items = activeWindow.items().map(i => ({ slot: i.slot, name: i.name, count: i.count }));
-  res.json(items);
-});
-
-app.get('/api/admin/vault', (req, res) => {
-  const db = loadDatabase();
-  res.json(db);
-});
-
 app.listen(PORT, () => {
-  console.log(`[Server] Night AFK Web Panel running at http://localhost:${PORT}`);
+  console.log(`[Night AFK] Server running at http://localhost:${PORT}`);
 });
-    
+         
