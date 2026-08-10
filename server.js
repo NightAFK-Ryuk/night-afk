@@ -1,446 +1,283 @@
 const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const session = require('express-session');
-const FileStore = require('session-file-store')(session);
+const path = require('path');
+const fs = require('fs');
 const mineflayer = require('mineflayer');
 const { SocksClient } = require('socks');
-const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const https = require('https');
-const path = require('path');
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
-
 const PORT = process.env.PORT || 3000;
+const DB_FILE = './bots_db.json';
 
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
-const sessionStorePath = process.env.RAILWAY_VOLUME_MOUNT_PATH 
-  ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'sessions') 
-  : './sessions';
+const activeBots = new Map(); // username -> { bot, startTime, afkInterval, reconnectTimer, options }
 
-const sessionMiddleware = session({
-  store: new FileStore({
-    path: sessionStorePath,
-    secret: 'night_afk_glowing_key_2026',
-    resave: true,
-    saveUninitialized: true,
-    retries: 0
-  }),
-  secret: 'night_afk_glowing_key_2026',
-  resave: true,
-  saveUninitialized: true,
-  cookie: { maxAge: 365 * 24 * 60 * 60 * 1000 }
-});
+// ==========================================
+// DATABASE UTILITIES
+// ==========================================
+function loadDatabase() {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    }
+  } catch (err) {
+    console.error('[Database] Load error:', err);
+  }
+  return {};
+}
 
-app.use(sessionMiddleware);
+function saveDatabase(data) {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error('[Database] Save error:', err);
+  }
+}
 
-io.use((socket, next) => {
-  sessionMiddleware(socket.request, {}, next);
-});
+// ==========================================
+// PROXY & HELPER UTILITIES
+// ==========================================
+function parseProxy(proxyStr) {
+  if (!proxyStr) return null;
+  const parts = proxyStr.trim().split(':');
+  if (parts.length >= 4) {
+    return { host: parts[0], port: parseInt(parts[1], 10), userId: parts[2], password: parts.slice(3).join(':') };
+  } else if (parts.length === 2) {
+    return { host: parts[0], port: parseInt(parts[1], 10) };
+  }
+  return null;
+}
 
-const users = new Map();
-const botInstances = new Map();
+function extractProxyIp(proxyStr) {
+  if (!proxyStr) return 'Direct Connection';
+  const parsed = parseProxy(proxyStr);
+  return parsed ? parsed.host : 'Unknown Proxy';
+}
 
-users.set('Ryuk', {
-  username: 'Ryuk',
-  email: 'ryuk@nightafk.com',
-  password: 'Ryuk#13',
-  role: 'admin',
-  status: 'active',
-  createdAt: new Date().toISOString()
-});
-
-function testSocks5Proxy(proxyStr) {
-  return new Promise((resolve) => {
-    if (!proxyStr) return resolve({ success: false, reason: 'No proxy provided.' });
-    const parts = proxyStr.trim().split(':');
-    if (parts.length < 2) return resolve({ success: false, reason: 'Format must be Host:Port' });
-
-    const host = parts[0];
-    const port = parseInt(parts[1], 10);
-    const userId = parts[2] || undefined;
-    const password = parts[3] || undefined;
-
-    SocksClient.createConnection({
-      proxy: { host, port, type: 5, userId, password },
+function createSocksConnect(proxyConfig, targetHost, targetPort) {
+  return (clientInstance) => {
+    const options = {
+      proxy: { host: proxyConfig.host, port: proxyConfig.port, type: 5 },
       command: 'connect',
-      destination: { host: '1.1.1.1', port: 80 },
-      timeout: 6000
-    })
-    .then(({ socket }) => {
-      socket.destroy();
-      resolve({ success: true, host, port });
-    })
-    .catch(err => resolve({ success: false, reason: err.message }));
-  });
-}
-
-function scrapeSocks5Proxies() {
-  return new Promise((resolve) => {
-    const url = 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt';
-    https.get(url, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        const lines = data.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-        resolve(lines.slice(0, 50));
+      destination: { host: targetHost, port: targetPort },
+      timeout: 15000
+    };
+    if (proxyConfig.userId && proxyConfig.password) {
+      options.proxy.userId = proxyConfig.userId;
+      options.proxy.password = proxyConfig.password;
+    }
+    SocksClient.createConnection(options)
+      .then((info) => {
+        clientInstance.setSocket(info.socket);
+        clientInstance.emit('connect');
+      })
+      .catch((err) => {
+        clientInstance.emit('error', new Error(`SOCKS5 Error: ${err.message}`));
       });
-    }).on('error', () => resolve([]));
-  });
+  };
 }
 
-function generateRandomUsername() {
-  const prefixes = ['Vortex', 'Shadow', 'Phantom', 'Ghost', 'Spectre', 'Cipher', 'Apex', 'Titan'];
-  const suffixes = ['X', '01', 'Void', 'AFK', 'Bot', 'Pro', 'Core', 'Prime'];
-  const p = prefixes[Math.floor(Math.random() * prefixes.length)];
-  const s = suffixes[Math.floor(Math.random() * suffixes.length)];
-  const num = Math.floor(Math.random() * 899) + 100;
-  return `${p}_${s}${num}`.slice(0, 16);
+function formatUptime(ms) {
+  const seconds = Math.floor((ms / 1000) % 60);
+  const minutes = Math.floor((ms / (1000 * 60)) % 60);
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  return `${hours}h ${minutes}m ${seconds}s`;
 }
 
-app.post('/api/register', (req, res) => {
-  const { username, email, password } = req.body;
-  if (!username || !email || !password) return res.status(400).json({ error: 'All fields required.' });
-  if (users.has(username)) return res.status(400).json({ error: 'Username already registered.' });
-
-  users.set(username, {
-    username, email, password, role: 'user', status: 'pending', createdAt: new Date().toISOString()
-  });
-  res.json({ success: true, message: 'Registration submitted! Awaiting activation from Ryuk.' });
-});
-
-app.post('/api/login', (req, res) => {
-  const { username, password } = req.body;
-  const user = users.get(username);
-
-  if (!user || user.password !== password) return res.status(401).json({ error: 'Invalid credentials.' });
-  if (user.status === 'pending') return res.status(403).json({ error: 'Account pending activation by Admin (Ryuk).' });
-
-  req.session.user = { username: user.username, role: user.role };
-  res.json({ success: true, user: req.session.user });
-});
-
-app.get('/api/me', (req, res) => {
-  if (!req.session.user) return res.status(401).json({ error: 'Unauthenticated' });
-  res.json(req.session.user);
-});
-
-app.post('/api/logout', (req, res) => {
-  req.session.destroy();
-  res.json({ success: true });
-});
-
-app.get('/api/admin/users', (req, res) => {
-  if (!req.session.user || req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
-  const list = Array.from(users.values()).map(u => ({
-    username: u.username,
-    email: u.email,
-    role: u.role,
-    status: u.status,
-    createdAt: u.createdAt,
-    botCount: Array.from(botInstances.values()).filter(b => b.ownerUsername === u.username).length
-  }));
-  res.json(list);
-});
-
-app.post('/api/admin/user-action', (req, res) => {
-  if (!req.session.user || req.session.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
-  const { targetUser, action } = req.body;
-  const u = users.get(targetUser);
-  if (!u) return res.status(404).json({ error: 'User not found' });
-
-  if (action === 'activate') u.status = 'active';
-  if (action === 'delete' && targetUser !== 'Ryuk') users.delete(targetUser);
-
-  res.json({ success: true });
-});
-
-function createWebBot(config, ownerUsername, existingBotId = null) {
-  const botId = existingBotId || `bot_${config.username}_${Date.now()}`;
+// ==========================================
+// BOT ENGINE
+// ==========================================
+function startBotInstance(options) {
+  const { username, password, proxyStr, mcVersion, host, port } = options;
 
   const botOpts = {
-    host: config.host,
-    port: parseInt(config.port, 10) || 25565,
-    username: config.username,
-    version: config.version || '1.8.9',
+    host,
+    port,
+    username,
+    version: mcVersion || '1.8.9',
     checkTimeoutInterval: 120000
   };
 
-  if (config.proxy) {
-    const parts = config.proxy.trim().split(':');
-    botOpts.connect = (client) => {
-      SocksClient.createConnection({
-        proxy: { host: parts[0], port: parseInt(parts[1], 10), type: 5, userId: parts[2], password: parts[3] },
-        command: 'connect',
-        destination: { host: config.host, port: botOpts.port }
-      }).then(({ socket }) => {
-        client.setSocket(socket);
-        client.emit('connect');
-      }).catch(err => {
-        emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `Proxy TCP Error: ${err.message}` });
-      });
-    };
+  if (proxyStr) {
+    const parsedProxy = parseProxy(proxyStr);
+    if (parsedProxy) {
+      botOpts.connect = createSocksConnect(parsedProxy, host, port);
+    }
   }
 
-  const bot = mineflayer.createBot(botOpts);
-  bot.loadPlugin(pathfinder);
+  let bot;
+  try {
+    bot = mineflayer.createBot(botOpts);
+  } catch (err) {
+    console.error(`[${username}] Init error:`, err.message);
+    return;
+  }
 
-  const instance = {
-    botId,
-    bot,
-    config,
-    ownerUsername,
+  let instanceData = activeBots.get(username) || {
+    bot: null,
     startTime: Date.now(),
+    afkInterval: null,
     reconnectTimer: null,
-    hffaInterval: null,
-    manualDisconnect: false
+    options
   };
 
-  botInstances.set(botId, instance);
+  instanceData.bot = bot;
+  activeBots.set(username, instanceData);
+
+  const db = loadDatabase();
+  db[username] = { username, password, proxyStr, mcVersion, host, port };
+  saveDatabase(db);
+
+  bot.once('spawn', () => {
+    console.log(`[Bot ${username}] Connected & Spawned.`);
+
+    // Anti-AFK Loop
+    if (instanceData.afkInterval) clearInterval(instanceData.afkInterval);
+    instanceData.afkInterval = setInterval(() => {
+      if (bot && bot.entity) {
+        bot.swingArm('right');
+        const yaw = (Math.random() - 0.5) * 0.4;
+        const pitch = (Math.random() - 0.5) * 0.4;
+        bot.look(bot.entity.yaw + yaw, bot.entity.pitch + pitch, false);
+      }
+    }, 40000);
+
+    // Auto Login / Register
+    if (password) {
+      setTimeout(() => {
+        bot.chat(`/register ${password} ${password}`);
+        setTimeout(() => bot.chat(`/login ${password}`), 1500);
+      }, 3000);
+    }
+  });
 
   bot.on('messagestr', (msg) => {
-    emitToUserOrAdmin(ownerUsername, 'bot_chat_log', { botId, message: msg });
-  });
-
-  bot.on('spawn', () => {
-    emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
-      botId,
-      username: config.username,
-      ownerUsername,
-      host: config.host,
-      port: config.port,
-      status: 'Online',
-      health: bot.health,
-      food: bot.food
-    });
-
-    const defaultMove = new Movements(bot);
-    bot.pathfinder.setMovements(defaultMove);
-
-    // ==========================================
-    // 1. FORCED AUTHENTICATION IMMEDIATELY
-    // ==========================================
-    const rawPass = config.password ? String(config.password).trim() : '';
-    if (rawPass.length > 0) {
-      console.log(`[AUTH] Force sending auth commands for ${config.username}`);
-      
-      // Fire strictly 500ms and 1000ms after spawn. No waiting for chat messages.
-      setTimeout(() => {
-        bot.chat(`/register ${rawPass} ${rawPass}`);
-      }, 500);
-      
-      setTimeout(() => {
-        bot.chat(`/login ${rawPass}`);
-      }, 1000);
-    }
-
-    // ==========================================
-    // 2. HARDCOREFFA AUTOMATION
-    // ==========================================
-    const hffaEnabled = config.hffa === true || config.hffa === 'true' || config.hffa === 'on' || config.gameMode === 'hffa' || config.gameMode === 'hardcoreffa';
-    if (hffaEnabled) {
-      // Wait 4 seconds for the login to succeed, then enter HardcoreFFA
-      setTimeout(() => {
-        bot.chat('/play hardcoreffa');
-        
-        if (instance.hffaInterval) clearInterval(instance.hffaInterval);
-        
-        instance.hffaInterval = setInterval(async () => {
-          if (!bot.entity) return;
-          
-          // Strip Armor
-          try {
-            const armorSlots = [5, 6, 7, 8];
-            for (const slot of armorSlots) {
-              if (bot.inventory.slots[slot]) {
-                await bot.clickWindow(slot, 0, 0); // Pick up armor
-                await bot.clickWindow(-999, 0, 0); // Drop it outside inventory
-              }
-            }
-          } catch (err) {
-            // Ignore normal click errors while moving/syncing
-          }
-
-          // Follow Target Player
-          const targetName = config.targetPlayer ? config.targetPlayer.trim() : '';
-          if (targetName !== '') {
-            const targetEntity = bot.players[targetName]?.entity;
-            if (targetEntity) {
-              bot.pathfinder.setGoal(new goals.GoalFollow(targetEntity, 1), true);
-            }
-          }
-        }, 1500); // Loop every 1.5 seconds
-      }, 4000);
+    const text = msg.trim();
+    if (!text) return;
+    const lower = text.toLowerCase();
+    if (password && (lower.includes('/login') || lower.includes('please login'))) {
+      bot.chat(`/login ${password}`);
+    } else if (password && (lower.includes('/register') || lower.includes('please register'))) {
+      bot.chat(`/register ${password} ${password}`);
     }
   });
 
-  bot.on('health', () => {
-    emitToUserOrAdmin(ownerUsername, 'bot_health_update', { botId, health: bot.health, food: bot.food });
-  });
-
-  bot.on('windowOpen', (window) => {
-    const slots = window.slots.map((item, index) => item ? { slot: index, name: item.name, count: item.count } : null);
-    emitToUserOrAdmin(ownerUsername, 'bot_inventory_update', { botId, title: window.title, slots });
-  });
-
-  bot.on('end', (reason) => {
-    // Clean up HFFA loop when bot disconnects
-    if (instance.hffaInterval) clearInterval(instance.hffaInterval);
-
-    emitToUserOrAdmin(ownerUsername, 'bot_status_update', {
-      botId, username: config.username, ownerUsername, status: `Offline (${reason})`
-    });
-
-    if (!instance.manualDisconnect) {
-      emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: 'Disconnected. Auto-reconnecting in 8s...' });
-      
-      // RECONNECT LOGIC: Calls createWebBot again, which resets everything and guarantees auth sends again.
-      instance.reconnectTimer = setTimeout(() => {
-        if (botInstances.has(botId) && !botInstances.get(botId).manualDisconnect) {
-          createWebBot(config, ownerUsername, botId);
-        }
-      }, 8000);
-    } else {
-      botInstances.delete(botId);
+  const handleDisconnect = () => {
+    if (instanceData.afkInterval) clearInterval(instanceData.afkInterval);
+    if (activeBots.has(username)) {
+      instanceData.reconnectTimer = setTimeout(() => {
+        if (activeBots.has(username)) startBotInstance(options);
+      }, 10000);
     }
-  });
+  };
 
-  bot.on('error', (err) => {
-    emitToUserOrAdmin(ownerUsername, 'bot_log', { botId, message: `System Error: ${err.message}` });
-  });
-
-  return botId;
+  bot.on('kicked', handleDisconnect);
+  bot.on('error', handleDisconnect);
+  bot.on('end', handleDisconnect);
 }
 
-function emitToUserOrAdmin(ownerUsername, event, data) {
-  io.sockets.sockets.forEach((socket) => {
-    const user = socket.request.session?.user;
-    if (user && (user.username === ownerUsername || user.role === 'admin')) {
-      socket.emit(event, data);
-    }
-  });
-}
+// ==========================================
+// API ROUTES
+// ==========================================
+app.post('/api/spawn', (req, res) => {
+  const { server, username, password, proxy, version } = req.body;
+  if (!server || !username) return res.status(400).json({ error: 'Server and username required' });
 
-io.on('connection', (socket) => {
-  const sessionUser = socket.request.session?.user;
-  if (!sessionUser) return;
-
-  function isAllowed(botId) {
-    const inst = botInstances.get(botId);
-    if (!inst) return false;
-    return sessionUser.role === 'admin' || inst.ownerUsername === sessionUser.username;
+  if (activeBots.has(username)) {
+    return res.status(400).json({ error: 'Bot already online' });
   }
 
-  socket.on('request_bot_sync', () => {
-    const list = [];
-    botInstances.forEach((inst, id) => {
-      if (sessionUser.role === 'admin' || inst.ownerUsername === sessionUser.username) {
-        list.push({
-          botId: id,
-          username: inst.config.username,
-          ownerUsername: inst.ownerUsername,
-          host: inst.config.host,
-          port: inst.config.port,
-          status: inst.bot?.entity ? 'Online' : 'Connecting',
-          health: inst.bot?.health || 0,
-          food: inst.bot?.food || 0,
-          uptime: Math.floor((Date.now() - inst.startTime) / 1000)
-        });
-      }
-    });
-    socket.emit('bot_sync', list);
-  });
+  const [host, portRaw] = server.split(':');
+  const port = parseInt(portRaw, 10) || 25565;
 
-  socket.on('get_random_username', () => {
-    socket.emit('random_username_res', generateRandomUsername());
-  });
-
-  socket.on('test_proxy_tcp', async (proxyStr) => {
-    const res = await testSocks5Proxy(proxyStr);
-    socket.emit('proxy_test_result', res);
-  });
-
-  socket.on('scrape_proxies', async () => {
-    const proxies = await scrapeSocks5Proxies();
-    socket.emit('scraped_proxies_res', proxies);
-  });
-
-  socket.on('spawn_bot', (config) => {
-    const botId = createWebBot(config, sessionUser.username);
-    socket.emit('bot_spawned', { botId, username: config.username });
-  });
-
-  socket.on('disconnect_bot', (botId) => {
-    if (!isAllowed(botId)) return;
-    const inst = botInstances.get(botId);
-    if (inst) {
-      inst.manualDisconnect = true;
-      if (inst.reconnectTimer) clearTimeout(inst.reconnectTimer);
-      if (inst.hffaInterval) clearInterval(inst.hffaInterval);
-      if (inst.bot) inst.bot.quit();
-      botInstances.delete(botId);
-      emitToUserOrAdmin(inst.ownerUsername, 'bot_removed', botId);
-    }
-  });
-
-  socket.on('send_chat', ({ botId, message }) => {
-    if (isAllowed(botId)) {
-      const inst = botInstances.get(botId);
-      if (inst && inst.bot) inst.bot.chat(message);
-    }
-  });
-
-  socket.on('global_chat', ({ message }) => {
-    botInstances.forEach(inst => {
-      if (sessionUser.role === 'admin' || inst.ownerUsername === sessionUser.username) {
-        if (inst.bot) inst.bot.chat(message);
-      }
-    });
-  });
-
-  socket.on('global_move', ({ action }) => {
-    botInstances.forEach(inst => {
-      if (sessionUser.role === 'admin' || inst.ownerUsername === sessionUser.username) {
-        if (inst.bot) {
-          if (action === 'jump') {
-            inst.bot.setControlState('jump', true);
-            setTimeout(() => inst.bot.setControlState('jump', false), 500);
-          } else if (action === 'forward') {
-            inst.bot.setControlState('forward', true);
-            setTimeout(() => inst.bot.setControlState('forward', false), 1000);
-          }
-        }
-      }
-    });
-  });
-
-  socket.on('fetch_inventory', (botId) => {
-    if (!isAllowed(botId)) return;
-    const inst = botInstances.get(botId);
-    if (!inst || !inst.bot) return;
-
-    const win = inst.bot.currentWindow || inst.bot.inventory;
-    const slots = win.slots.map((item, index) => item ? { slot: index, name: item.name, count: item.count } : null);
-    socket.emit('bot_inventory_update', { botId, title: win.title || 'Inventory', slots });
-  });
-
-  socket.on('click_slot', ({ botId, slotId }) => {
-    if (!isAllowed(botId)) return;
-    const inst = botInstances.get(botId);
-    if (!inst || !inst.bot) return;
-
-    inst.bot.clickWindow(slotId, 0, 0).catch(err => {
-      emitToUserOrAdmin(inst.ownerUsername, 'bot_log', { botId, message: `Click error: ${err.message}` });
-    });
-  });
+  const botOptions = { username, password, proxyStr: proxy, mcVersion: version || '1.8.9', host, port };
+  startBotInstance(botOptions);
+  res.json({ success: true, message: `Spawning ${username}...` });
 });
 
-server.listen(PORT, () => {
-  console.log(`[Night AFK] Live on port ${PORT}`);
+app.post('/api/disconnect', (req, res) => {
+  const { username } = req.body;
+  if (username === 'all') {
+    activeBots.forEach((data, name) => {
+      if (data.reconnectTimer) clearTimeout(data.reconnectTimer);
+      if (data.afkInterval) clearInterval(data.afkInterval);
+      if (data.bot) data.bot.quit();
+    });
+    activeBots.clear();
+    return res.json({ success: true, message: 'Disconnected all bots.' });
+  }
+
+  const botData = activeBots.get(username);
+  if (!botData) return res.status(404).json({ error: 'Bot not found' });
+
+  if (botData.reconnectTimer) clearTimeout(botData.reconnectTimer);
+  if (botData.afkInterval) clearInterval(botData.afkInterval);
+  if (botData.bot) botData.bot.quit();
+  activeBots.delete(username);
+
+  res.json({ success: true, message: `Disconnected ${username}` });
 });
-         
+
+app.get('/api/status', (req, res) => {
+  const statuses = [];
+  activeBots.forEach((data, username) => {
+    const { bot, startTime, options } = data;
+    statuses.push({
+      username,
+      host: `${options.host}:${options.port}`,
+      uptime: formatUptime(Date.now() - startTime),
+      health: bot && bot.health ? bot.health.toFixed(1) : 'N/A',
+      food: bot && bot.food ? bot.food.toFixed(1) : 'N/A',
+      ping: bot && bot.player ? bot.player.ping : 'N/A',
+      proxy: extractProxyIp(options.proxyStr)
+    });
+  });
+  res.json(statuses);
+});
+
+app.post('/api/chat', (req, res) => {
+  const { username, message } = req.body;
+  if (username === 'all') {
+    activeBots.forEach((data) => { if (data.bot) data.bot.chat(message); });
+    return res.json({ success: true });
+  }
+  const data = activeBots.get(username);
+  if (!data || !data.bot) return res.status(404).json({ error: 'Bot offline' });
+  data.bot.chat(message);
+  res.json({ success: true });
+});
+
+app.post('/api/move', (req, res) => {
+  const { username, direction, duration = 1000 } = req.body;
+  const targets = username === 'all' ? Array.from(activeBots.values()) : [activeBots.get(username)];
+
+  targets.forEach((data) => {
+    if (data && data.bot) {
+      data.bot.setControlState(direction, true);
+      setTimeout(() => data.bot.setControlState(direction, false), duration);
+    }
+  });
+  res.json({ success: true });
+});
+
+app.get('/api/inventory', (req, res) => {
+  const { username } = req.query;
+  const data = activeBots.get(username);
+  if (!data || !data.bot) return res.status(404).json({ error: 'Bot offline' });
+
+  const activeWindow = data.bot.currentWindow || data.bot.inventory;
+  const items = activeWindow.items().map(i => ({ slot: i.slot, name: i.name, count: i.count }));
+  res.json(items);
+});
+
+app.get('/api/admin/vault', (req, res) => {
+  const db = loadDatabase();
+  res.json(db);
+});
+
+app.listen(PORT, () => {
+  console.log(`[Server] Night AFK Web Panel running at http://localhost:${PORT}`);
+});
+    
