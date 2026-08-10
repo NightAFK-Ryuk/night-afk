@@ -1,13 +1,14 @@
 {
-  "name": "night-afk-panel",
-  "version": "1.0.0",
-  "description": "Minecraft AFK Bot Web Panel",
+  "name": "night-afk-dashboard",
+  "version": "2.0.0",
+  "description": "Minecraft 24/7 AFK Bot Panel with Auth",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.19.2",
+    "express-session": "^1.18.0",
     "mineflayer": "^4.20.0",
     "socks": "^2.8.3"
   }
